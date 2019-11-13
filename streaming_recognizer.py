@@ -141,6 +141,13 @@ def listen_print_loop(responses, caption_file):
       
         # Display the transcription of the top alternative.
         words = result.alternatives[0].words
+        times = []
+        for word in words:
+            start = word.start_time
+            end = word.end_time
+            span = (start, end)
+            times.append((word.word, span))
+        sys.stderr.write('times: {}\n'.format(times))
         phrase = " ".join([word.word for word in words])
         if caption_file and result.is_final:
             caption = phrase+'\n'
