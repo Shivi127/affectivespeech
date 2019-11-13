@@ -35,8 +35,8 @@ class SoundConsumer(object):
       sys.stderr.flush()
       while not self.__stop_flag:
          try:
-            sound_bite = self._audio_chunk_queue.get(block=False)
-            sys.stderr.write("got {} audio bytes max volume {}\n".format(len(sound_bite), audioop.max(sound_bite, 2)))
+            seq, sound_bite = self._audio_chunk_queue.get(block=False)
+            sys.stderr.write("got frame {}, {} audio bytes max volume {}\n".format(seq, len(sound_bite), audioop.max(sound_bite, 2)))
          except Empty:
             pass
       sys.stderr.write("Done consuming audio\n")
@@ -44,7 +44,7 @@ class SoundConsumer(object):
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
-    def __init__(self, rate, chunk, chunk_queue):
+    def __init__(self, rate, chunk, chunk_queue=None):
         self._rate = rate
         self._chunk = chunk
         self._chunk_queue = chunk_queue
@@ -86,6 +86,7 @@ class MicrophoneStream(object):
         return None, pyaudio.paContinue
 
     def generator(self):
+        frame_nbr = 0
         while not self.closed:
             # Use a blocking get() to ensure there's at least one chunk of
             # data, and stop iteration if the chunk is None, indicating the
@@ -105,9 +106,11 @@ class MicrophoneStream(object):
                 except queue.Empty:
                     break
 
+            frame_nbr += 1
             sound_chunk = b''.join(data)
-            self._chunk_queue.put(sound_chunk)
-            yield chunk
+            if self._chunk_queue:
+                self._chunk_queue.put((frame_nbr, sound_chunk))
+            yield (frame_nbr, sound_chunk)
 
 
 def listen_print_loop(responses, caption_file):
@@ -123,8 +126,8 @@ def listen_print_loop(responses, caption_file):
     If a caption file is specified, print final responses to a caption file
     with timestamps every minute.
     """
-    last_transcript = ''
-    last_timestamp = 0
+    last_phrase = ''
+    last_caption_timestamp = 0
     for response in responses:
         if not response.results:
             continue
@@ -137,23 +140,24 @@ def listen_print_loop(responses, caption_file):
             continue
       
         # Display the transcription of the top alternative.
-        transcript = result.alternatives[0].transcript
+        words = result.alternatives[0].words
+        phrase = " ".join([word.word for word in words])
         if caption_file and result.is_final:
-            caption = transcript+"\n"
-            if time.time() - last_timestamp > TIMESTAMP_PERIOD_SECS:
+            caption = phrase+'\n'
+            if time.time() - last_caption_timestamp > TIMESTAMP_PERIOD_SECS:
                 caption = "{} {}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), caption)
-                last_timestamp = time.time()
+                last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-	if (len(transcript.strip()) <= len(last_transcript.strip()) and
-		transcript.strip() == last_transcript.strip()[:len(transcript.strip())]):
+	if (len(phrase.strip()) <= len(last_phrase.strip()) and
+		phrase.strip() == last_phrase.strip()[:len(phrase.strip())]):
 		continue
 
-        show_text(transcript)
-        last_transcript = transcript
+        show_text(phrase)
+        last_phrase = phrase
 
         # Exit recognition if our exit word is said 3 times
-        if len(re.findall(r'quit', transcript, re.I)) == 3:
+        if len(re.findall(r'quit', phrase, re.I)) == 3:
             print('Exiting..')
             show_text('Exiting..')
             break
@@ -177,7 +181,8 @@ def main(argv):
     config = types.RecognitionConfig(
         encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
         sample_rate_hertz=RATE,
-        language_code=language_code)
+        language_code=language_code,
+        enable_word_time_offsets=True)
     streaming_config = types.StreamingRecognitionConfig(
         config=config,
         interim_results=True)
@@ -187,7 +192,7 @@ def main(argv):
         audio_generator = stream.generator()
         while True:
           requests = (types.StreamingRecognizeRequest(audio_content=content)
-             for content in audio_generator)
+             for seq, content in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
             listen_print_loop(responses, caption_file)
