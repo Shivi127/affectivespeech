@@ -3,6 +3,7 @@ from show_text_fe import show_text
 import re
 import sys
 
+import traceback
 import threading
 from Queue import Queue
 from Queue import Empty
@@ -35,8 +36,8 @@ class SoundConsumer(object):
       sys.stderr.flush()
       while not self.__stop_flag:
          try:
-            seq, sound_bite = self._audio_chunk_queue.get(block=False)
-            sys.stderr.write("got frame {}, {} audio bytes max volume {}\n".format(seq, len(sound_bite), audioop.max(sound_bite, 2)))
+            seq, start_at_elapsed, end_at_elapsed, sound_bite = self._audio_chunk_queue.get(block=False)
+            sys.stderr.write("got frame {}, duration {}, {} audio bytes max volume {}\n".format(seq, end_at_elapsed - start_at_elapsed, len(sound_bite), audioop.max(sound_bite, 2)))
          except Empty:
             pass
       sys.stderr.write("Done consuming audio\n")
@@ -87,6 +88,8 @@ class MicrophoneStream(object):
 
     def generator(self):
         frame_nbr = 0
+        first_audio_start_time = time.time()
+        start_elapsed_time = None
         while not self.closed:
             # Use a blocking get() to ensure there's at least one chunk of
             # data, and stop iteration if the chunk is None, indicating the
@@ -95,6 +98,9 @@ class MicrophoneStream(object):
             if chunk is None:
                 return
             data = [chunk]
+            if not start_elapsed_time:
+                # TODO: Subtract the duration of the audio chunk from the clock
+                start_elapsed_time = time.time() - first_audio_start_time
 
             # Now consume whatever other data's still buffered.
             while True:
@@ -108,9 +114,12 @@ class MicrophoneStream(object):
 
             frame_nbr += 1
             sound_chunk = b''.join(data)
+            end_elapsed_time = time.time() - first_audio_start_time
+            soundbite = (frame_nbr, start_elapsed_time, end_elapsed_time, sound_chunk)
+            start_elapsed_time = None
             if self._chunk_queue:
-                self._chunk_queue.put((frame_nbr, sound_chunk))
-            yield (frame_nbr, sound_chunk)
+                self._chunk_queue.put(soundbite)
+            yield soundbite
 
 def parse_time(timestamp):
     span = timestamp.seconds
@@ -205,14 +214,13 @@ def main(argv):
         audio_generator = stream.generator()
         while True:
           requests = (types.StreamingRecognizeRequest(audio_content=content)
-             for seq, content in audio_generator)
+             for seq, start_offset, end_offset, content in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
             listen_print_loop(responses, caption_file)
             break
-          except Exception, e:
-            sys.stderr.write("Error, retrying: {}".format(e))
-            sys.stderr.flush()
+          except:
+            traceback.print_exc()
           finally:
             if caption_file:
               caption_file.close()
