@@ -112,6 +112,12 @@ class MicrophoneStream(object):
                 self._chunk_queue.put((frame_nbr, sound_chunk))
             yield (frame_nbr, sound_chunk)
 
+def parse_time(timestamp):
+    span = timestamp.seconds
+    nanos = timestamp.nanos
+    span += float(nanos) / 1000000000.0
+    return span
+ 
 
 def listen_print_loop(responses, caption_file):
     """Iterates through server responses and prints them.
@@ -143,9 +149,9 @@ def listen_print_loop(responses, caption_file):
         words = result.alternatives[0].words
         times = []
         for word in words:
-            start = word.start_time
-            end = word.end_time
-            span = (start, end)
+            start = parse_time(word.start_time)
+            end = parse_time(word.end_time)
+            span = (start, end, (end-start))
             times.append((word.word, span))
         sys.stderr.write('times: {}\n'.format(times))
         phrase = " ".join([word.word for word in words])
