@@ -19,7 +19,8 @@ from datetime import datetime
 
 # Audio recording parameters
 RATE = 16000
-CHUNK = int(RATE / 10)  # 100ms
+CHUNK_DURATION_SECS = 0.10  # 100 ms chunks
+CHUNK = int(RATE * CHUNK_DURATION_SECS)
 
 TIMESTAMP_PERIOD_SECS = 60.0
 
@@ -36,8 +37,8 @@ class SoundConsumer(object):
       sys.stderr.flush()
       while not self.__stop_flag:
          try:
-            seq, start_at_elapsed, end_at_elapsed, sound_bite = self._audio_chunk_queue.get(block=False)
-            sys.stderr.write("got frame {}, duration {}, {} audio bytes max volume {}\n".format(seq, end_at_elapsed - start_at_elapsed, len(sound_bite), audioop.max(sound_bite, 2)))
+            seq, chunk_count, start_at_elapsed, end_at_elapsed, sound_bite = self._audio_chunk_queue.get(block=False)
+            sys.stderr.write("got frame {}, chunk count {}, duration {}, {} audio bytes max volume {}\n".format(seq, chunk_count, round((end_at_elapsed - start_at_elapsed), 6), len(sound_bite), audioop.max(sound_bite, 2)))
          except Empty:
             pass
       sys.stderr.write("Done consuming audio\n")
@@ -90,6 +91,7 @@ class MicrophoneStream(object):
         frame_nbr = 0
         first_audio_start_time = time.time()
         start_elapsed_time = None
+        chunk_count = 0
         while not self.closed:
             # Use a blocking get() to ensure there's at least one chunk of
             # data, and stop iteration if the chunk is None, indicating the
@@ -98,9 +100,9 @@ class MicrophoneStream(object):
             if chunk is None:
                 return
             data = [chunk]
+            chunk_count += 1
             if not start_elapsed_time:
-                # TODO: Subtract the duration of the audio chunk from the clock
-                start_elapsed_time = time.time() - first_audio_start_time
+                start_elapsed_time = time.time() - CHUNK_DURATION_SECS - first_audio_start_time
 
             # Now consume whatever other data's still buffered.
             while True:
@@ -109,14 +111,16 @@ class MicrophoneStream(object):
                     if chunk is None:
                         return
                     data.append(chunk)
+                    chunk_count += 1
                 except queue.Empty:
                     break
 
             frame_nbr += 1
             sound_chunk = b''.join(data)
             end_elapsed_time = time.time() - first_audio_start_time
-            soundbite = (frame_nbr, start_elapsed_time, end_elapsed_time, sound_chunk)
+            soundbite = (frame_nbr, chunk_count, start_elapsed_time, end_elapsed_time, sound_chunk)
             start_elapsed_time = None
+            chunk_count = 0
             if self._chunk_queue:
                 self._chunk_queue.put(soundbite)
             yield soundbite
@@ -214,7 +218,7 @@ def main(argv):
         audio_generator = stream.generator()
         while True:
           requests = (types.StreamingRecognizeRequest(audio_content=content)
-             for seq, start_offset, end_offset, content in audio_generator)
+             for seq, chunk_count, start_offset, end_offset, content in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
             listen_print_loop(responses, caption_file)
