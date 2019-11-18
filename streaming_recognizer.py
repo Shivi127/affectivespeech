@@ -38,7 +38,7 @@ class SoundConsumer(object):
       while not self.__stop_flag:
          try:
             seq, chunk_count, start_at_elapsed, end_at_elapsed, sound_bite = self._audio_chunk_queue.get(block=False)
-            sys.stderr.write("got frame {}, chunk count {}, duration {}, {} audio bytes max volume {}\n".format(seq, chunk_count, round((end_at_elapsed - start_at_elapsed), 6), len(sound_bite), audioop.max(sound_bite, 2)))
+            sys.stderr.write("got frame {}, chunk count {}, start {}, end {}, duration {}, {} audio bytes max volume {}\n".format(seq, chunk_count, round(start_at_elapsed, 2), round(end_at_elapsed, 2), round((end_at_elapsed - start_at_elapsed), 4), len(sound_bite), audioop.max(sound_bite, 2)))
          except Empty:
             pass
       sys.stderr.write("Done consuming audio\n")
@@ -109,6 +109,8 @@ class MicrophoneStream(object):
                 try:
                     chunk = self._buff.get(block=False)
                     if chunk is None:
+                        sys.stderr.write('null audio chunk\n')
+                        sys.stderr.flush()
                         return
                     data.append(chunk)
                     chunk_count += 1
@@ -160,6 +162,10 @@ def listen_print_loop(responses, caption_file):
       
         # Display the transcription of the top alternative.
         words = result.alternatives[0].words
+
+        if len(words) == 0:
+            continue
+
         times = []
         for word in words:
             start = parse_time(word.start_time)
@@ -175,10 +181,8 @@ def listen_print_loop(responses, caption_file):
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-	if (len(phrase.strip()) <= len(last_phrase.strip()) and
-		phrase.strip() == last_phrase.strip()[:len(phrase.strip())]):
-		continue
-
+        if not result.is_final:
+            show_text('??? ->')
         show_text(phrase)
         last_phrase = phrase
 
