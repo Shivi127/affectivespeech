@@ -163,17 +163,18 @@ def listen_print_loop(responses, caption_file):
         # Display the transcription of the top alternative.
         words = result.alternatives[0].words
 
-        if len(words) == 0:
-            continue
-
         times = []
         for word in words:
             start = parse_time(word.start_time)
             end = parse_time(word.end_time)
             span = (start, end, (end-start))
             times.append((word.word, span))
-        sys.stderr.write('times: {}\n'.format(times))
-        phrase = " ".join([word.word for word in words])
+        # Handle words only being returned for final results.  https://issuetracker.google.com/issues/144757737
+        if words:
+            sys.stderr.write('word times: {}\n'.format(times))
+            phrase = " ".join([word.word for word in words])
+        else:
+            phrase = result.alternatives[0].transcript
         if caption_file and result.is_final:
             caption = phrase+'\n'
             if time.time() - last_caption_timestamp > TIMESTAMP_PERIOD_SECS:
@@ -181,8 +182,6 @@ def listen_print_loop(responses, caption_file):
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-        if not result.is_final:
-            show_text('??? ->')
         show_text(phrase)
         last_phrase = phrase
 
