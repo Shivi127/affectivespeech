@@ -16,6 +16,7 @@ import pyaudio
 from six.moves import queue
 import time
 from datetime import datetime
+from collections import deque
 
 # Audio recording parameters
 RATE = 16000
@@ -24,10 +25,32 @@ CHUNK = int(RATE * CHUNK_DURATION_SECS)
 
 TIMESTAMP_PERIOD_SECS = 60.0
 
+
+def get_max(audio_chunk):
+    return audioop.max(audio_chunk, 2)
+
+def get_rms(audio_chunk):
+    return audioop.rms(audio_chunk, 2)
+
+def get_avg(audio_chunk):
+    return audioop.avg(audio_chunk, 2)
+
+def setup_samples(sample_count):
+    return deque(sample_count*[None], sample_count)
+
+def maintain_last_N_samples(samples, sample):
+    samples.appendleft(sample)
+
+def calculate_function_average_for_samples(samples, function):
+    applied_function_results = [function(sample) for sample in samples if sample is not None]
+    return sum(applied_function_results) / len(applied_function_results)
+
 class SoundConsumer(object):
+   SAMPLE_COUNT = 5
    def __init__(self, audio_chunk_queue):
       self.__stop_flag = False
       self._audio_chunk_queue = audio_chunk_queue
+      self._sound_samples = setup_samples(self.SAMPLE_COUNT)
 
    def stop(self):
       self.__stop_flag = True
@@ -38,7 +61,11 @@ class SoundConsumer(object):
       while not self.__stop_flag:
          try:
             seq, chunk_count, start_at_elapsed, end_at_elapsed, sound_bite = self._audio_chunk_queue.get(block=False)
-            sys.stderr.write("got frame {}, chunk count {}, start {}, end {}, duration {}, {} audio bytes max volume {}\n".format(seq, chunk_count, round(start_at_elapsed, 2), round(end_at_elapsed, 2), round((end_at_elapsed - start_at_elapsed), 4), len(sound_bite), audioop.max(sound_bite, 2)))
+            maintain_last_N_samples(self._sound_samples, sound_bite)
+            window_rms = calculate_function_average_for_samples(self._sound_samples, get_rms)
+            sample_rms = get_rms(sound_bite)
+            sample_rms_delta = sample_rms - window_rms
+            sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at_elapsed, 2), round(end_at_elapsed, 2), round((end_at_elapsed - start_at_elapsed), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta, get_avg(sound_bite)))
          except Empty:
             pass
       sys.stderr.write("Done consuming audio\n")
