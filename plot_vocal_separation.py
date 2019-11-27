@@ -24,6 +24,7 @@ This is based on the "REPET-SIM" method of `Rafii and Pardo, 2012
 # Standard imports
 from __future__ import print_function
 import numpy as np
+import struct
 import matplotlib.pyplot as plt
 import librosa
 import soundfile
@@ -34,14 +35,11 @@ import librosa.display
 # Load an example with vocals.
 y, sr = librosa.load('audio/rb-testspeech.mp3', duration=5)
 
-
 # And compute the spectrogram magnitude and phase
 S_full, phase = librosa.magphase(librosa.stft(y))
 
 
 #######################################
-# Plot a 5-second slice of the spectrum
-idx = slice(*librosa.time_to_frames([5, 10], sr=sr))
 plt.figure(figsize=(12, 4))
 librosa.display.specshow(librosa.amplitude_to_db(S_full, ref=np.max),
                          y_axis='log', x_axis='time', sr=sr)
@@ -105,31 +103,36 @@ S_background = mask_i * S_full
 
 plt.figure(figsize=(12, 8))
 plt.subplot(3, 1, 1)
-full_sound = S_full[:]
-librosa.display.specshow(librosa.amplitude_to_db(full_sound, ref=np.max),
-                         y_axis='log', sr=sr)
+full = librosa.amplitude_to_db(S_full, ref=np.max)
+librosa.display.specshow(full, y_axis='log', sr=sr)
 
 plt.title('Full spectrum')
 plt.colorbar()
 
 plt.subplot(3, 1, 2)
-background_sound = S_background
-librosa.display.specshow(librosa.amplitude_to_db(background_sound, ref=np.max),
-                         y_axis='log', sr=sr)
+background = librosa.amplitude_to_db(S_background, ref=np.max)
+librosa.display.specshow(background, y_axis='log', sr=sr)
 plt.title('Background')
 plt.colorbar()
+
 plt.subplot(3, 1, 3)
-foreground_sound = S_foreground
-soundfile.write('orig.WAV', y, sr)
-soundfile.write('fg.WAV', foreground_sound, sr)
-soundfile.write('bg.WAV', background_sound, sr)
-soundfile.write('full.WAV', librosa.amplitude_to_db(full_sound, ref=np.max), sr)
-print("y({}): {}".format(len(y),y))
-print("sr: {}".format(sr))
-print("full({}[{}]): {}".format(len(full_sound),len(full_sound[0]),full_sound))
-librosa.display.specshow(librosa.amplitude_to_db(foreground_sound, ref=np.max),
-                         y_axis='log', x_axis='time', sr=sr)
+foreground = librosa.amplitude_to_db(S_foreground, ref=np.max)
+librosa.display.specshow(foreground, y_axis='log', x_axis='time', sr=sr)
 plt.title('Foreground')
 plt.colorbar()
+
 plt.tight_layout()
 plt.show()
+
+full_audio = librosa.istft(S_full)
+foreground_audio = librosa.istft(S_foreground)
+background_audio = librosa.istft(S_background)
+print("y({}): {}".format(len(y),y))
+
+print("sr: {}".format(sr))
+print("full({}): '{}' {}".format(len(full_audio),struct.pack('>H', full_audio[1]), full_audio))
+
+soundfile.write('orig.WAV', y, sr)
+soundfile.write('full.WAV', full_audio, sr)
+soundfile.write('fg.WAV', foreground_audio, sr)
+soundfile.write('bg.WAV', background_audio, sr)
