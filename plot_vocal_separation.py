@@ -1,65 +1,14 @@
-# -*- coding: utf-8 -*-
-"""
-================
-Vocal separation
-================
-
-This notebook demonstrates a simple technique for separating vocals (and
-other sporadic foreground signals) from accompanying instrumentation.
-
-This is based on the "REPET-SIM" method of `Rafii and Pardo, 2012
-<http://www.cs.northwestern.edu/~zra446/doc/Rafii-Pardo%20-%20Music-Voice%20Separation%20using%20the%20Similarity%20Matrix%20-%20ISMIR%202012.pdf>`_, but includes a couple of modifications and extensions:
-
-    - FFT windows overlap by 1/4, instead of 1/2
-    - Non-local filtering is converted into a soft mask by Wiener filtering.
-      This is similar in spirit to the soft-masking method used by `Fitzgerald, 2012
-      <http://arrow.dit.ie/cgi/viewcontent.cgi?article=1086&context=argcon>`_,
-      but is a bit more numerically stable in practice.
-"""
-
-# Code source: Brian McFee
-# License: ISC
-
-##################
-# Standard imports
-from __future__ import print_function
 import numpy as np
-import struct
 import matplotlib.pyplot as plt
 import librosa
 import soundfile
-
+import audioop
 import librosa.display
 
-#############################################
-# Load an example with vocals.
-y, sr = librosa.load('audio/rb-testspeech.mp3', duration=5)
+source_audio, sr = librosa.load('audio/rb-testspeech.mp3')
 
-# And compute the spectrogram magnitude and phase
-S_full, phase = librosa.magphase(librosa.stft(y))
-
-
-#######################################
-plt.figure(figsize=(12, 4))
-librosa.display.specshow(librosa.amplitude_to_db(S_full, ref=np.max),
-                         y_axis='log', x_axis='time', sr=sr)
-plt.colorbar()
-plt.tight_layout()
-
-###########################################################
-# The wiggly lines above are due to the vocal component.
-# Our goal is to separate them from the accompanying
-# instrumentation.
-#
-
-# We'll compare frames using cosine similarity, and aggregate similar frames
-# by taking their (per-frequency) median value.
-#
-# To avoid being biased by local continuity, we constrain similar frames to be
-# separated by at least 2 seconds.
-#
-# This suppresses sparse/non-repetetitive deviations from the average spectrum,
-# and works well to discard vocal elements.
+# compute the spectrogram magnitude and phase
+S_full, phase = librosa.magphase(librosa.stft(source_audio))
 
 S_filter = librosa.decompose.nn_filter(S_full,
                                        aggregate=np.median,
@@ -96,16 +45,11 @@ S_foreground = mask_v * S_full
 S_background = mask_i * S_full
 
 
-##########################################
-# Plot the same slice, but separated into its foreground and background
-
-# sphinx_gallery_thumbnail_number = 2
-
 plt.figure(figsize=(12, 8))
+
 plt.subplot(3, 1, 1)
 full = librosa.amplitude_to_db(S_full, ref=np.max)
 librosa.display.specshow(full, y_axis='log', sr=sr)
-
 plt.title('Full spectrum')
 plt.colorbar()
 
@@ -127,12 +71,18 @@ plt.show()
 full_audio = librosa.istft(S_full)
 foreground_audio = librosa.istft(S_foreground)
 background_audio = librosa.istft(S_background)
-print("y({}): {}".format(len(y),y))
 
+####################################################
+# Print out some metadata of the original audio and the 3 derived streams
 print("sr: {}".format(sr))
-print("full({}): '{}' {}".format(len(full_audio),struct.pack('>H', full_audio[1]), full_audio))
+print("orig({}) max {} power {}: {}".format(len(source_audio), audioop.max(source_audio,2), audioop.rms(source_audio,2), source_audio))
+print("full({}) max {} power {}: {}".format(len(full_audio), audioop.max(background_audio,2), audioop.rms(full_audio,2), full_audio))
+print("foreground({}) max {} power {}: {}".format(len(foreground_audio), audioop.max(background_audio,2), audioop.rms(foreground_audio,2), foreground_audio))
+print("background({}) max {} power {}: {}".format(len(background_audio), audioop.max(background_audio,2), audioop.rms(background_audio,2), background_audio))
 
-soundfile.write('orig.WAV', y, sr)
+####################################################
+# Write out the streams as sound files for later verification
+soundfile.write('orig.WAV', source_audio, sr)
 soundfile.write('full.WAV', full_audio, sr)
 soundfile.write('fg.WAV', foreground_audio, sr)
 soundfile.write('bg.WAV', background_audio, sr)
