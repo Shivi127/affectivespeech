@@ -11,10 +11,11 @@ from Queue import Empty
 from google.cloud import speech
 from google.cloud.speech import enums
 from google.cloud.speech import types
+
 import audioop
 import pyaudio
-from six.moves import queue
 import time
+from six.moves import queue
 from datetime import datetime
 from collections import deque
 
