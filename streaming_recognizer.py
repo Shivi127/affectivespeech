@@ -32,6 +32,9 @@ STATE_SAMPLE_LIFETIME_SECS = 5
 
 VOLUME_DELTA_THRESHOLD = 9
 
+VOLUME_SAMPLE_WINDOW_SECS = 1.0
+_VOLUME_SAMPLE_COUNT = int(VOLUME_SAMPLE_WINDOW_SECS / CHUNK_DURATION_SECS)
+
 def get_max(audio_chunk):
     return audioop.max(audio_chunk, 2)
 
@@ -42,8 +45,6 @@ def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
 class SoundConsumer(object):
-    SAMPLE_COUNT = 5
-
     def maintain_recent_samples(self, sample):
         self._sound_samples.append(sample)
 
@@ -55,7 +56,7 @@ class SoundConsumer(object):
         self.__stop_flag = False
         self.current_state = STATE_VOLUME_CONSTANT
         self._audio_chunk_queue = audio_chunk_queue
-        self._sound_samples = deque(self.SAMPLE_COUNT*[None], self.SAMPLE_COUNT)
+        self._sound_samples = deque(_VOLUME_SAMPLE_COUNT*[None], _VOLUME_SAMPLE_COUNT)
         self._state_changes = deque()
 
     def stop(self):
@@ -98,7 +99,7 @@ class SoundConsumer(object):
                 elif self.current_state != STATE_VOLUME_CONSTANT:
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
-                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta, get_avg(sound_bite)))
+                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta))
             except Empty:
                 pass
         sys.stderr.write("Done consuming audio\n")
