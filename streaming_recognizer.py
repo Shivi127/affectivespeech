@@ -19,6 +19,8 @@ from six.moves import queue
 from datetime import datetime
 from collections import deque
 
+from sound_state import *
+
 # Audio recording parameters
 RATE = 16000
 CHUNK_DURATION_SECS = 0.10  # 100 ms chunks
@@ -26,9 +28,6 @@ CHUNK = int(RATE * CHUNK_DURATION_SECS)
 
 CAPTION_DURATION_SECS = 60.0
 
-STATE_VOLUME_LOWERED = 0
-STATE_VOLUME_CONSTANT = 1
-STATE_VOLUME_ELEVATED = 2
 STATE_SAMPLE_LIFETIME_SECS = 5
 
 VOLUME_DELTA_THRESHOLD = 9
@@ -71,7 +70,6 @@ class SoundConsumer(object):
         deleted = False
         
         while self._state_changes[0][2] < oldest_target_sample_age:
-            sys.stderr.write('end: {}\n'.format(self._state_changes[0][2]))
             self._state_changes.popleft()
             deleted = True
         return deleted
@@ -195,7 +193,7 @@ def parse_time(timestamp):
     return span
  
 
-def listen_print_loop(responses, caption_file):
+def listen_print_loop(responses, caption_file, sound_processor):
     """Iterates through server responses and prints them.
 
     The responses passed is a generator that will block until a response
@@ -243,7 +241,8 @@ def listen_print_loop(responses, caption_file):
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-        show_text(phrase)
+        sys.stderr.write('state: {}\n'.format(sound_processor.current_state))
+        show_text(phrase, sound_processor.current_state)
         last_phrase = phrase
 
         # Exit recognition if our exit word is said 3 times
@@ -285,7 +284,7 @@ def main(argv):
              for seq, chunk_count, start_offset, end_offset, content in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
-            listen_print_loop(responses, caption_file)
+            listen_print_loop(responses, caption_file, sound_processor)
             break
           except:
             traceback.print_exc()

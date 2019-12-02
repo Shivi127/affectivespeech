@@ -1,15 +1,18 @@
 import sys
 import subprocess
+from show_text_console import draw_text_on_console
+
+from sound_state import *
 
 LINES, LINE_LENGTH = subprocess.check_output(['stty', 'size']).split()
 LINES=int(LINES)
 LINE_LENGTH=int(LINE_LENGTH)
 LINES -= 1
 print("lines: {} cols: {}".format(LINES,LINE_LENGTH))
-DISPLAY_COMMAND = ['python', 'show_text_console.py']
+DISPLAY_COMMAND = draw_text_on_console
 
 PAD_LINES = ['' for i in range(LINES)]
-def show_text(text):
+def show_text(text, state=STATE_VOLUME_CONSTANT):
   words = text.split(' ')
   tokens = []
   for word in words:
@@ -28,16 +31,15 @@ def show_text(text):
   if len(line) > 0:
     lines.append(line.strip())
     
-  print_lines(lines)
+  print_lines(lines, state)
 
 def chunkstring(string, length):
     return (string[0+i:length+i] for i in range(0, len(string), length))
 
-def print_lines(text):
+def print_lines(text, state):
   lines = PAD_LINES + text
   lines = lines[-LINES:] 
-  command = DISPLAY_COMMAND+lines
-  subprocess.call(command)
+  draw_text_on_console(lines, state)
 
 if __name__  == "__main__":
 	if len(sys.argv) > 1:
