@@ -29,8 +29,9 @@ CAPTION_DURATION_SECS = 60.0
 STATE_VOLUME_LOWERED = 0
 STATE_VOLUME_CONSTANT = 1
 STATE_VOLUME_ELEVATED = 2
+STATE_SAMPLE_LIFETIME_SECS = 5
 
-VOLUME_DELTA_THRESHOLD = 10
+VOLUME_DELTA_THRESHOLD = 9
 
 def get_max(audio_chunk):
     return audioop.max(audio_chunk, 2)
@@ -43,11 +44,9 @@ def get_avg(audio_chunk):
 
 class SoundConsumer(object):
     SAMPLE_COUNT = 5
-    def __init_sound_samples(self, sample_count):
-        self._sound_samples = deque(sample_count*[None], sample_count)
 
     def maintain_recent_samples(self, sample):
-        self._sound_samples.appendleft(sample)
+        self._sound_samples.append(sample)
 
     def calculate_function_average_for_samples(self, function):
         applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
@@ -55,14 +54,33 @@ class SoundConsumer(object):
 
     def __init__(self, audio_chunk_queue):
         self.__stop_flag = False
+        self.current_state = STATE_VOLUME_CONSTANT
         self._audio_chunk_queue = audio_chunk_queue
-        self.__init_sound_samples(self.SAMPLE_COUNT)
+        self._sound_samples = deque(self.SAMPLE_COUNT*[None], self.SAMPLE_COUNT)
+        self._state_changes = deque()
 
     def stop(self):
         self.__stop_flag = True
 
-    def record_state_change(self, direction, change_sample_start_at, change_sample_end_at):
-        pass 
+    def maintain_state_change_queue_lifetime(self):
+        """
+        Guarantee that only state changes that occured in the desired lifetime are kept.
+        returns: If any stored entries were old and deleted.
+        """
+        oldest_target_sample_age = time.time() - STATE_SAMPLE_LIFETIME_SECS
+        deleted = False
+        
+        while self._state_changes[0][2] < oldest_target_sample_age:
+            sys.stderr.write('end: {}\n'.format(self._state_changes[0][2]))
+            self._state_changes.popleft()
+            deleted = True
+        return deleted
+
+    def record_state_change(self, state, change_sample_start_at, change_sample_end_at):
+        self.current_state = state
+        sample = (state, change_sample_start_at, change_sample_end_at)
+        self._state_changes.append(sample)
+        self.maintain_state_change_queue_lifetime()
 
     def consume_raw_audio(self):
         sys.stderr.write("Waiting to consume audio\n")
@@ -76,10 +94,12 @@ class SoundConsumer(object):
                 sample_rms_delta = sample_rms - window_rms
 
                 if sample_rms_delta <= (VOLUME_DELTA_THRESHOLD * -1):
-                    self.record_state_change(-1, start_at, end_at)
+                    self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
                 elif sample_rms_delta >= VOLUME_DELTA_THRESHOLD:
-                    self.record_state_change(1, start_at, end_at)
-
+                    self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
+                elif self.current_state != STATE_VOLUME_CONSTANT:
+                    self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
+                    
                 sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta, get_avg(sound_bite)))
             except Empty:
                 pass
@@ -227,7 +247,7 @@ def listen_print_loop(responses, caption_file):
         last_phrase = phrase
 
         # Exit recognition if our exit word is said 3 times
-        if len(re.findall(r'quit', phrase, re.I)) == 3:
+        if result.is_final and len(re.findall(r'quit', phrase, re.I)) == 3:
             print('Exiting..')
             show_text('Exiting..')
             break
