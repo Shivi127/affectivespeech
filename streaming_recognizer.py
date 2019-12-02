@@ -36,22 +36,22 @@ def get_rms(audio_chunk):
 def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
-def setup_samples(sample_count):
-    return deque(sample_count*[None], sample_count)
-
-def maintain_last_N_samples(samples, sample):
-    samples.appendleft(sample)
-
-def calculate_function_average_for_samples(samples, function):
-    applied_function_results = [function(sample) for sample in samples if sample is not None]
-    return sum(applied_function_results) / len(applied_function_results)
-
 class SoundConsumer(object):
    SAMPLE_COUNT = 5
+   def __init_sound_samples(self, sample_count):
+      self._sound_samples = deque(sample_count*[None], sample_count)
+
+   def maintain_recent_samples(self, sample):
+      self._sound_samples.appendleft(sample)
+
+   def calculate_function_average_for_samples(self, function):
+      applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
+      return sum(applied_function_results) / len(applied_function_results)
+
    def __init__(self, audio_chunk_queue):
       self.__stop_flag = False
       self._audio_chunk_queue = audio_chunk_queue
-      self._sound_samples = setup_samples(self.SAMPLE_COUNT)
+      self.__init_sound_samples(self.SAMPLE_COUNT)
 
    def stop(self):
       self.__stop_flag = True
@@ -62,8 +62,8 @@ class SoundConsumer(object):
       while not self.__stop_flag:
          try:
             seq, chunk_count, start_at_elapsed, end_at_elapsed, sound_bite = self._audio_chunk_queue.get(block=False)
-            maintain_last_N_samples(self._sound_samples, sound_bite)
-            window_rms = calculate_function_average_for_samples(self._sound_samples, get_rms)
+            self.maintain_recent_samples(sound_bite)
+            window_rms = self.calculate_function_average_for_samples(get_rms)
             sample_rms = get_rms(sound_bite)
             sample_rms_delta = sample_rms - window_rms
             sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at_elapsed, 2), round(end_at_elapsed, 2), round((end_at_elapsed - start_at_elapsed), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta, get_avg(sound_bite)))
