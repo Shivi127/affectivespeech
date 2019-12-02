@@ -24,8 +24,13 @@ RATE = 16000
 CHUNK_DURATION_SECS = 0.10  # 100 ms chunks
 CHUNK = int(RATE * CHUNK_DURATION_SECS)
 
-TIMESTAMP_PERIOD_SECS = 60.0
+CAPTION_DURATION_SECS = 60.0
 
+STATE_VOLUME_LOWERED = 0
+STATE_VOLUME_CONSTANT = 1
+STATE_VOLUME_ELEVATED = 2
+
+VOLUME_DELTA_THRESHOLD = 10
 
 def get_max(audio_chunk):
     return audioop.max(audio_chunk, 2)
@@ -37,40 +42,49 @@ def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
 class SoundConsumer(object):
-   SAMPLE_COUNT = 5
-   def __init_sound_samples(self, sample_count):
-      self._sound_samples = deque(sample_count*[None], sample_count)
+    SAMPLE_COUNT = 5
+    def __init_sound_samples(self, sample_count):
+        self._sound_samples = deque(sample_count*[None], sample_count)
 
-   def maintain_recent_samples(self, sample):
-      self._sound_samples.appendleft(sample)
+    def maintain_recent_samples(self, sample):
+        self._sound_samples.appendleft(sample)
 
-   def calculate_function_average_for_samples(self, function):
-      applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
-      return sum(applied_function_results) / len(applied_function_results)
+    def calculate_function_average_for_samples(self, function):
+        applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
+        return sum(applied_function_results) / len(applied_function_results)
 
-   def __init__(self, audio_chunk_queue):
-      self.__stop_flag = False
-      self._audio_chunk_queue = audio_chunk_queue
-      self.__init_sound_samples(self.SAMPLE_COUNT)
+    def __init__(self, audio_chunk_queue):
+        self.__stop_flag = False
+        self._audio_chunk_queue = audio_chunk_queue
+        self.__init_sound_samples(self.SAMPLE_COUNT)
 
-   def stop(self):
-      self.__stop_flag = True
+    def stop(self):
+        self.__stop_flag = True
 
-   def consume_raw_audio(self):
-      sys.stderr.write("Waiting to consume audio\n")
-      sys.stderr.flush()
-      while not self.__stop_flag:
-         try:
-            seq, chunk_count, start_at_elapsed, end_at_elapsed, sound_bite = self._audio_chunk_queue.get(block=False)
-            self.maintain_recent_samples(sound_bite)
-            window_rms = self.calculate_function_average_for_samples(get_rms)
-            sample_rms = get_rms(sound_bite)
-            sample_rms_delta = sample_rms - window_rms
-            sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at_elapsed, 2), round(end_at_elapsed, 2), round((end_at_elapsed - start_at_elapsed), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta, get_avg(sound_bite)))
-         except Empty:
-            pass
-      sys.stderr.write("Done consuming audio\n")
-      sys.stderr.flush()
+    def record_state_change(self, direction, change_sample_start_at, change_sample_end_at):
+        pass 
+
+    def consume_raw_audio(self):
+        sys.stderr.write("Waiting to consume audio\n")
+        sys.stderr.flush()
+        while not self.__stop_flag:
+            try:
+                seq, chunk_count, start_at, end_at, sound_bite = self._audio_chunk_queue.get(block=False)
+                self.maintain_recent_samples(sound_bite)
+                window_rms = self.calculate_function_average_for_samples(get_rms)
+                sample_rms = get_rms(sound_bite)
+                sample_rms_delta = sample_rms - window_rms
+
+                if sample_rms_delta <= (VOLUME_DELTA_THRESHOLD * -1):
+                    self.record_state_change(-1, start_at, end_at)
+                elif sample_rms_delta >= VOLUME_DELTA_THRESHOLD:
+                    self.record_state_change(1, start_at, end_at)
+
+                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta, get_avg(sound_bite)))
+            except Empty:
+                pass
+        sys.stderr.write("Done consuming audio\n")
+        sys.stderr.flush()
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
@@ -117,8 +131,7 @@ class MicrophoneStream(object):
 
     def generator(self):
         frame_nbr = 0
-        first_audio_start_time = time.time()
-        start_elapsed_time = None
+        start_time = None
         chunk_count = 0
         while not self.closed:
             # Use a blocking get() to ensure there's at least one chunk of
@@ -129,8 +142,8 @@ class MicrophoneStream(object):
                 return
             data = [chunk]
             chunk_count += 1
-            if not start_elapsed_time:
-                start_elapsed_time = time.time() - CHUNK_DURATION_SECS - first_audio_start_time
+            if not start_time:
+                start_time = time.time() - CHUNK_DURATION_SECS
 
             # Now consume whatever other data's still buffered.
             while True:
@@ -147,9 +160,9 @@ class MicrophoneStream(object):
 
             frame_nbr += 1
             sound_chunk = b''.join(data)
-            end_elapsed_time = time.time() - first_audio_start_time
-            soundbite = (frame_nbr, chunk_count, start_elapsed_time, end_elapsed_time, sound_chunk)
-            start_elapsed_time = None
+            end_time = time.time()
+            soundbite = (frame_nbr, chunk_count, start_time, end_time, sound_chunk)
+            start_time = None
             chunk_count = 0
             if self._chunk_queue:
                 self._chunk_queue.put(soundbite)
@@ -205,7 +218,7 @@ def listen_print_loop(responses, caption_file):
             phrase = result.alternatives[0].transcript
         if caption_file and result.is_final:
             caption = phrase+'\n'
-            if time.time() - last_caption_timestamp > TIMESTAMP_PERIOD_SECS:
+            if time.time() - last_caption_timestamp > CAPTION_DURATION_SECS:
                 caption = "{} {}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), caption)
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
