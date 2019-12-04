@@ -48,9 +48,17 @@ class SoundConsumer(object):
     def maintain_recent_samples(self, sample):
         self._sound_samples.append(sample)
 
+    def calculate_function_average_above_threshold_for_samples(self, function, threshold):
+        applied_function_results = [function(sample) for sample in self._sound_samples if sample > threshold]
+        return sum(applied_function_results) / len(applied_function_results)
+
     def calculate_function_average_for_samples(self, function):
         applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
         return sum(applied_function_results) / len(applied_function_results)
+
+    def calculate_function_min_for_samples(self, function):
+        applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
+        return min(applied_function_results)
 
     def __init__(self, audio_chunk_queue):
         self.__stop_flag = False
@@ -88,11 +96,13 @@ class SoundConsumer(object):
             try:
                 seq, chunk_count, start_at, end_at, sound_bite = self._audio_chunk_queue.get(block=False)
                 self.maintain_recent_samples(sound_bite)
-                window_rms = self.calculate_function_average_for_samples(get_rms)
+                window_min = self.calculate_function_min_for_samples(get_rms)
+                volume_silence_threshold = window_min + VOLUME_DELTA_THRESHOLD - 1
+                window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
                 sample_rms = get_rms(sound_bite)
                 sample_rms_delta = sample_rms - window_rms
 
-                if sample_rms_delta <= (VOLUME_DELTA_THRESHOLD * -1):
+                if sample_rms > volume_silence_threshold and sample_rms_delta <= (VOLUME_DELTA_THRESHOLD * -1):
                     self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
                 elif sample_rms_delta >= VOLUME_DELTA_THRESHOLD:
                     self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
