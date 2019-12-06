@@ -49,15 +49,21 @@ class SoundConsumer(object):
         self._sound_samples.append(sample)
 
     def calculate_function_average_above_threshold_for_samples(self, function, threshold):
-        applied_function_results = [function(sample) for sample in self._sound_samples if sample > threshold]
+        applied_function_results = [eligible_sample for eligible_sample in [function(sample) for sample in self._sound_samples if sample is not None] if eligible_sample > threshold]
+        if applied_function_results is None or not applied_function_results:
+            return None
         return sum(applied_function_results) / len(applied_function_results)
 
     def calculate_function_average_for_samples(self, function):
         applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
+        if applied_function_results is None or not applied_function_results:
+            return None
         return sum(applied_function_results) / len(applied_function_results)
 
     def calculate_function_min_for_samples(self, function):
         applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
+        if applied_function_results is None or not applied_function_results:
+            return None
         return min(applied_function_results)
 
     def __init__(self, audio_chunk_queue):
@@ -95,11 +101,15 @@ class SoundConsumer(object):
         while not self.__stop_flag:
             try:
                 seq, chunk_count, start_at, end_at, sound_bite = self._audio_chunk_queue.get(block=False)
+                if sound_bite is None:
+                    sys.stderr.write('NULL audio chunk\n')
                 self.maintain_recent_samples(sound_bite)
                 window_min = self.calculate_function_min_for_samples(get_rms)
                 volume_silence_threshold = window_min + VOLUME_DELTA_THRESHOLD - 1
-                window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
                 sample_rms = get_rms(sound_bite)
+                window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
+                if window_rms is None:
+                    window_rms = sample_rms
                 sample_rms_delta = sample_rms - window_rms
 
                 if sample_rms > volume_silence_threshold and sample_rms_delta <= (VOLUME_DELTA_THRESHOLD * -1):
