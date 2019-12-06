@@ -114,16 +114,16 @@ class SoundConsumer(object):
                     window_rms = sample_rms
                 sample_rms_delta = sample_rms - window_rms
 
-                sample_variance = float(sample_rms_delta) / window_rms
+                sample_rms_variance = float(sample_rms_delta) / window_rms
 
-                if sample_variance >= VOLUME_RAISED_VARIANCE_THRESHOLD:
+                if sample_rms_variance >= VOLUME_RAISED_VARIANCE_THRESHOLD:
                     self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
                 elif sample_rms_delta <= VOLUME_LOWERED_VARIANCE_THRESHOLD:
                     self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
                 elif self.current_state != STATE_VOLUME_CONSTANT:
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
-                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, volume_silence_threshold, sample_rms_delta, sample_variance))
+                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, volume_silence_threshold, sample_rms_delta, sample_rms_variance))
             except Empty:
                 pass
         sys.stderr.write("Done consuming audio\n")
