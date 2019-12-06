@@ -30,9 +30,11 @@ CAPTION_DURATION_SECS = 60.0
 
 STATE_SAMPLE_LIFETIME_SECS = 5
 
-VOLUME_DELTA_THRESHOLD = 9
+VOLUME_SILENCE_RANGE = 1.10  # Consider anything within 10% above the minimum sound to be background noise
+VOLUME_RAISED_VARIANCE_THRESHOLD = 0.5
+VOLUME_LOWERED_VARIANCE_THRESHOLD = -1 * VOLUME_RAISED_VARIANCE_THRESHOLD
 
-VOLUME_SAMPLE_WINDOW_SECS = 1.0
+VOLUME_SAMPLE_WINDOW_SECS = 1.
 _VOLUME_SAMPLE_COUNT = int(VOLUME_SAMPLE_WINDOW_SECS / CHUNK_DURATION_SECS)
 
 def get_max(audio_chunk):
@@ -105,21 +107,23 @@ class SoundConsumer(object):
                     sys.stderr.write('NULL audio chunk\n')
                 self.maintain_recent_samples(sound_bite)
                 window_min = self.calculate_function_min_for_samples(get_rms)
-                volume_silence_threshold = window_min + VOLUME_DELTA_THRESHOLD - 1
+                volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
                 sample_rms = get_rms(sound_bite)
                 window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
                 if window_rms is None:
                     window_rms = sample_rms
                 sample_rms_delta = sample_rms - window_rms
 
-                if sample_rms > volume_silence_threshold and sample_rms_delta <= (VOLUME_DELTA_THRESHOLD * -1):
-                    self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
-                elif sample_rms_delta >= VOLUME_DELTA_THRESHOLD:
+                sample_variance = float(sample_rms_delta) / window_rms
+
+                if sample_variance >= VOLUME_RAISED_VARIANCE_THRESHOLD:
                     self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
+                elif sample_rms_delta <= VOLUME_LOWERED_VARIANCE_THRESHOLD:
+                    self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
                 elif self.current_state != STATE_VOLUME_CONSTANT:
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
-                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), sample_rms, window_rms, sample_rms_delta))
+                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, volume_silence_threshold, sample_rms_delta, sample_variance))
             except Empty:
                 pass
         sys.stderr.write("Done consuming audio\n")
