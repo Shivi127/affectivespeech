@@ -29,6 +29,7 @@ CHUNK = int(RATE * CHUNK_DURATION_SECS)
 CAPTION_DURATION_SECS = 60.0
 
 STATE_SAMPLE_LIFETIME_SECS = 5
+PAUSE_MINIMUM_SPAN_SECS = 2
 
 VOLUME_SILENCE_RANGE = 1.10  # Consider anything within 10% above the minimum sound to be background noise
 VOLUME_RAISED_VARIANCE_THRESHOLD = 0.5
@@ -47,7 +48,7 @@ def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
 class SoundConsumer(object):
-    def maintain_recent_samples(self, sample):
+    def add_to_recent_samples(self, sample):
         self._sound_samples.append(sample)
 
     def calculate_function_average_above_threshold_for_samples(self, function, threshold):
@@ -66,14 +67,17 @@ class SoundConsumer(object):
         applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
         if applied_function_results is None or not applied_function_results:
             return None
+        sys.stderr.write('min of {}\n'.format(applied_function_results))
         return min(applied_function_results)
 
     def __init__(self, audio_chunk_queue):
         self.__stop_flag = False
         self.current_state = STATE_VOLUME_CONSTANT
         self._audio_chunk_queue = audio_chunk_queue
-        self._sound_samples = deque(_VOLUME_SAMPLE_COUNT*[None], _VOLUME_SAMPLE_COUNT)
+        self._sound_samples = deque()
         self._state_changes = deque()
+        self.current_pause_start = None
+        self.current_pause_end = None
 
     def stop(self):
         self.__stop_flag = True
@@ -97,18 +101,34 @@ class SoundConsumer(object):
         self._state_changes.append(sample)
         self.maintain_state_change_queue_lifetime()
 
+    def _truncate_recent_samples(self):
+        self._sound_samples = deque()
+
     def consume_raw_audio(self):
         sys.stderr.write("Waiting to consume audio\n")
         sys.stderr.flush()
         while not self.__stop_flag:
             try:
-                seq, chunk_count, start_at, end_at, sound_bite = self._audio_chunk_queue.get(block=False)
+                seq, chunk_size, start_at, end_at, sound_bite = self._audio_chunk_queue.get(block=False)
                 if sound_bite is None:
                     sys.stderr.write('NULL audio chunk\n')
-                self.maintain_recent_samples(sound_bite)
-                window_min = self.calculate_function_min_for_samples(get_rms)
-                volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
                 sample_rms = get_rms(sound_bite)
+                window_min = self.calculate_function_min_for_samples(get_rms)
+                if window_min is None:
+                    window_min = sample_rms
+                volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
+                self.add_to_recent_samples(sound_bite)
+                if sample_rms > volume_silence_threshold:
+                    self.current_pause_start = None
+                    self.current_pause_end = None
+                else:
+                    if self.current_pause_start is None:
+                        self.current_pause_start = start_at
+                    self.current_pause_end = end_at
+                    if self.current_pause_end - self.current_pause_start >= PAUSE_MINIMUM_SPAN_SECS:
+                        sys.stderr.write('discard {} samples\n'.format(len(self._sound_samples)))
+                        self._truncate_recent_samples()
+ 
                 window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
                 if window_rms is None:
                     window_rms = sample_rms
@@ -123,7 +143,7 @@ class SoundConsumer(object):
                 elif self.current_state != STATE_VOLUME_CONSTANT:
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
-                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_count, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, volume_silence_threshold, sample_rms_delta, sample_rms_variance))
+                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
             except Empty:
                 pass
         sys.stderr.write("Done consuming audio\n")
@@ -175,6 +195,7 @@ class MicrophoneStream(object):
     def generator(self):
         frame_nbr = 0
         start_time = None
+        end_time = None
         chunk_count = 0
         while not self.closed:
             # Use a blocking get() to ensure there's at least one chunk of
@@ -186,7 +207,10 @@ class MicrophoneStream(object):
             data = [chunk]
             chunk_count += 1
             if not start_time:
-                start_time = time.time() - CHUNK_DURATION_SECS
+                if end_time:
+                    start_time = end_time
+                else:
+                    start_time = time.time() - CHUNK_DURATION_SECS
 
             # Now consume whatever other data's still buffered.
             while True:
