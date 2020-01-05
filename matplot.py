@@ -12,7 +12,7 @@ def draw_bar(values):
   plt.ylabel('interval')
   plt.title('value')
 
-  print values
+  print(values)
   plt.draw()
 
 values = [10,8,1,4,2,6]
