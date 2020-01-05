@@ -5,8 +5,8 @@ import sys
 
 import traceback
 import threading
-from Queue import Queue
-from Queue import Empty
+from queue import Queue
+from queue import Empty
 
 from google.cloud import speech
 from google.cloud.speech import enums
@@ -341,7 +341,7 @@ def main(argv):
             if caption_file:
               caption_file.close()
             sound_processor.stop()
-    print "ended"
+    print("ended")
     quit()
 
 if __name__ == '__main__':

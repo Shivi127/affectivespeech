@@ -1,9 +1,10 @@
 import time
 import sys
-from sound_state import *
 
 import logging
 logging.getLogger().setLevel(logging.INFO)
+
+from sound_state import *
 
 class color:
    PURPLE = '\033[95m'

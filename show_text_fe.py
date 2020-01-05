@@ -8,7 +8,7 @@ LINES, LINE_LENGTH = subprocess.check_output(['stty', 'size']).split()
 LINES=int(LINES)
 LINE_LENGTH=int(LINE_LENGTH)
 LINES -= 1
-print("lines: {} cols: {}".format(LINES,LINE_LENGTH))
+sys.stderr.write("lines: {} cols: {}\n".format(LINES,LINE_LENGTH))
 DISPLAY_COMMAND = draw_text_on_console
 
 PAD_LINES = ['' for i in range(LINES)]
