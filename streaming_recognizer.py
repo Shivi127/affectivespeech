@@ -1,5 +1,3 @@
-from show_text_fe import show_text
-
 import re
 import sys
 
@@ -19,12 +17,18 @@ from six.moves import queue
 from datetime import datetime
 from collections import deque
 
+from show_text_fe import show_text
 from sound_state import *
+from plotutil import *
+
 
 # Audio recording parameters
 RATE = 16000
 CHUNK_DURATION_SECS = 0.10  # 100 ms chunks
 CHUNK = int(RATE * CHUNK_DURATION_SECS)
+
+PLOT_HISTORY_SECS = 2
+_PLOT_HISTORY_COUNT = int(PLOT_HISTORY_SECS / CHUNK_DURATION_SECS)
 
 CAPTION_DURATION_SECS = 60.0
 
@@ -90,7 +94,7 @@ class SoundConsumer(object):
         oldest_target_sample_age = time.time() - STATE_SAMPLE_LIFETIME_SECS
         deleted = False
         
-        while self._state_changes[0][2] < oldest_target_sample_age:
+        while len(self._state_changes) > 0 and self._state_changes[0][2] < oldest_target_sample_age:
             self._state_changes.popleft()
             deleted = True
         return deleted
@@ -103,6 +107,13 @@ class SoundConsumer(object):
 
     def _truncate_recent_samples(self):
         self._sound_samples = deque()
+
+    def plot_recent_samples_rms(self, sample_count):
+        slice_start = -1 * min(sample_count, len(self._sound_samples))
+        plot_samples = list(self._sound_samples)[slice_start:]
+        plots = [get_rms(sample) for sample in plot_samples if sample is not None]
+        sys.stderr.write('plot: {}\n'.format(plots))
+        draw_bar('sound level', 'RMS', plots)
 
     def consume_raw_audio(self):
         sys.stderr.write("Waiting to consume audio\n")
@@ -144,6 +155,7 @@ class SoundConsumer(object):
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
                 sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
+                self.plot_recent_samples_rms(_PLOT_HISTORY_COUNT)
             except Empty:
                 pass
         sys.stderr.write("Done consuming audio\n")
