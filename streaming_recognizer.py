@@ -55,6 +55,9 @@ class SoundConsumer(object):
     def add_to_recent_samples(self, sample):
         self._sound_samples.append(sample)
 
+    def add_to_recent_windows(self, window_rms):
+        self._sound_windows.append(window_rms)
+
     def calculate_function_average_above_threshold_for_samples(self, function, threshold):
         applied_function_results = [eligible_sample for eligible_sample in [function(sample) for sample in self._sound_samples if sample is not None] if eligible_sample > threshold]
         if applied_function_results is None or not applied_function_results:
@@ -79,6 +82,7 @@ class SoundConsumer(object):
         self.current_state = STATE_VOLUME_CONSTANT
         self._audio_chunk_queue = audio_chunk_queue
         self._sound_samples = deque()
+        self._sound_windows = deque()
         self._state_changes = deque()
         self.current_pause_start = None
         self.current_pause_end = None
@@ -107,13 +111,14 @@ class SoundConsumer(object):
 
     def _truncate_recent_samples(self):
         self._sound_samples = deque()
+        self._sound_windows = deque()
 
     def plot_recent_samples_rms(self, sample_count):
         slice_start = -1 * min(sample_count, len(self._sound_samples))
-        plot_samples = list(self._sound_samples)[slice_start:]
-        plots = [get_rms(sample) for sample in plot_samples if sample is not None]
-        sys.stderr.write('plot: {}\n'.format(plots))
-        draw_bar('sound level', 'RMS', plots)
+        samples_plot = [get_rms(sample) for sample in list(self._sound_samples)[slice_start:]]
+        windows_plot = [window for window in list(self._sound_windows)[slice_start:]]
+        sys.stderr.write('plot:\n {}\n {}\n'.format(samples_plot, windows_plot))
+        draw_graph('sound level', 'RMS', samples_plot, windows_plot)
 
     def consume_raw_audio(self):
         sys.stderr.write("Waiting to consume audio\n")
@@ -143,6 +148,7 @@ class SoundConsumer(object):
                 window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
                 if window_rms is None:
                     window_rms = sample_rms
+                self.add_to_recent_windows(window_rms)
                 sample_rms_delta = sample_rms - window_rms
 
                 sample_rms_variance = float(sample_rms_delta) / window_rms
