@@ -58,8 +58,9 @@ class SoundConsumer(object):
     def add_to_recent_window_rms(self, window_rms):
         self._sound_windows.append(window_rms)
 
-    def calculate_function_average_above_threshold_for_samples(self, function, threshold):
-        applied_function_results = [eligible_sample for eligible_sample in [function(sample) for sample in self._sound_samples if sample is not None] if eligible_sample > threshold]
+    def calculate_function_average_above_threshold_for_recent_samples(self, function, threshold, max_sample_count):
+        slice_start = -1 * min(max_sample_count, len(self._sound_samples))
+        applied_function_results = [eligible_sample for eligible_sample in [function(sample) for sample in list(self._sound_samples)[slice_start:] if sample is not None] if eligible_sample > threshold]
         if applied_function_results is None or not applied_function_results:
             return None
         return sum(applied_function_results) / len(applied_function_results)
@@ -149,7 +150,7 @@ class SoundConsumer(object):
                         sys.stderr.write('discard {} samples\n'.format(len(self._sound_samples)))
                         self._truncate_recent_samples()
  
-                window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
+                window_rms = self.calculate_function_average_above_threshold_for_recent_samples(get_rms, volume_silence_threshold, _PLOT_HISTORY_COUNT)
                 if window_rms is None:
                     window_rms = sample_rms
                 self.add_to_recent_window_rms(window_rms)
