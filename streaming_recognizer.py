@@ -55,7 +55,7 @@ class SoundConsumer(object):
     def add_to_recent_samples(self, sample):
         self._sound_samples.append(sample)
 
-    def add_to_recent_windows(self, window_rms):
+    def add_to_recent_window_rms(self, window_rms):
         self._sound_windows.append(window_rms)
 
     def calculate_function_average_above_threshold_for_samples(self, function, threshold):
@@ -86,6 +86,8 @@ class SoundConsumer(object):
         self._state_changes = deque()
         self.current_pause_start = None
         self.current_pause_end = None
+        self.all_min = 9999
+        self.all_max = -9999
 
     def stop(self):
         self.__stop_flag = True
@@ -118,7 +120,7 @@ class SoundConsumer(object):
         samples_plot = [get_rms(sample) for sample in list(self._sound_samples)[slice_start:]]
         windows_plot = [window for window in list(self._sound_windows)[slice_start:]]
         sys.stderr.write('plot:\n {}\n {}\n'.format(samples_plot, windows_plot))
-        draw_graph('sound level', 'RMS', samples_plot, windows_plot)
+        draw_graph('sound level', (self.all_min, self.all_max), 'RMS', samples_plot, windows_plot)
 
     def consume_raw_audio(self):
         sys.stderr.write("Waiting to consume audio\n")
@@ -129,6 +131,8 @@ class SoundConsumer(object):
                 if sound_bite is None:
                     sys.stderr.write('NULL audio chunk\n')
                 sample_rms = get_rms(sound_bite)
+                self.all_min = min(sample_rms, self.all_min)
+                self.all_max = max(sample_rms, self.all_max)
                 window_min = self.calculate_function_min_for_samples(get_rms)
                 if window_min is None:
                     window_min = sample_rms
@@ -148,7 +152,7 @@ class SoundConsumer(object):
                 window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
                 if window_rms is None:
                     window_rms = sample_rms
-                self.add_to_recent_windows(window_rms)
+                self.add_to_recent_window_rms(window_rms)
                 sample_rms_delta = sample_rms - window_rms
 
                 sample_rms_variance = float(sample_rms_delta) / window_rms
