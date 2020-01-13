@@ -17,6 +17,8 @@ from six.moves import queue
 from datetime import datetime
 from collections import deque
 
+import sound_processor
+
 from show_text_fe import show_text
 from sound_state import *
 from plotutil import *
@@ -50,6 +52,7 @@ def get_rms(audio_chunk):
 
 def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
+
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
