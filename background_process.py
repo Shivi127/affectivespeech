@@ -23,14 +23,14 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 class Background(multiprocessing.Process):
-    def __init__(self, transcript, log_queue, log_level):
+    def __init__(self, foreground_pipe, log_queue, log_level):
         super(Background,self).__init__()
-        i, o = transcript
+        i, o = foreground_pipe
         self._exit = multiprocessing.Event()
         logging.debug("Event initially {}".format(self._exit.is_set()))
         self._log_queue = log_queue
         self._log_level = log_level
-        self._transcript = i
+        self._foreground_pipe = i
         self._stop_producing = False
         self._stop_processing = False
         self._work_queue = deque()
@@ -89,7 +89,7 @@ class Background(multiprocessing.Process):
         while not self._stop_processing:
             try:
                 message = self._work_queue.pop() 
-                self._transcript.send("i={}".format(message))
+                self._foreground_pipe.send("i={}".format(message))
             except IndexError:
                 pass
         logging.debug("stopped performing")
@@ -102,10 +102,10 @@ if __name__ == '__main__':
     logging.getLogger('').setLevel(_DEBUG)
 
     logging.debug("starting main")
-    transcript = multiprocessing.Pipe()
-    background_process = Background(transcript, log_queue, logging.getLogger('').getEffectiveLevel())
+    background_pipe = multiprocessing.Pipe()
+    background_process = Background(background_pipe, log_queue, logging.getLogger('').getEffectiveLevel())
     try:
-        i, o = transcript
+        i, o = background_pipe
         background_process.start()
         logging.debug("waiting for messages")
         c = 0

@@ -21,8 +21,6 @@ import sound_processor
 
 from show_text_fe import show_text
 from sound_state import *
-from plotutil import *
-
 
 # Audio recording parameters
 RATE = 16000
@@ -36,22 +34,6 @@ CAPTION_DURATION_SECS = 60.0
 
 STATE_SAMPLE_LIFETIME_SECS = 5
 PAUSE_MINIMUM_SPAN_SECS = 2
-
-VOLUME_SILENCE_RANGE = 1.10  # Consider anything within 10% above the minimum sound to be background noise
-VOLUME_RAISED_VARIANCE_THRESHOLD = 0.5
-VOLUME_LOWERED_VARIANCE_THRESHOLD = -1 * VOLUME_RAISED_VARIANCE_THRESHOLD
-
-VOLUME_SAMPLE_WINDOW_SECS = 1.
-_VOLUME_SAMPLE_COUNT = int(VOLUME_SAMPLE_WINDOW_SECS / CHUNK_DURATION_SECS)
-
-def get_max(audio_chunk):
-    return audioop.max(audio_chunk, 2)
-
-def get_rms(audio_chunk):
-    return audioop.rms(audio_chunk, 2)
-
-def get_avg(audio_chunk):
-    return audioop.avg(audio_chunk, 2)
 
 
 class MicrophoneStream(object):
@@ -147,7 +129,7 @@ def parse_time(timestamp):
     return span
  
 
-def listen_print_loop(responses, caption_file, sound_processor):
+def listen_print_loop(responses, caption_file, sound_consumer):
     """Iterates through server responses and prints them.
 
     The responses passed is a generator that will block until a response
@@ -195,8 +177,8 @@ def listen_print_loop(responses, caption_file, sound_processor):
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-        sys.stderr.write('state: {}\n'.format(sound_processor.current_state))
-        show_text(phrase, sound_processor.current_state)
+        sys.stderr.write('state: {}\n'.format(sound_consumer.current_state))
+        show_text(phrase, sound_consumer.current_state)
         last_phrase = phrase
 
         # Exit recognition if our exit word is said 3 times
@@ -218,8 +200,8 @@ def main(argv):
  
     client = speech.SpeechClient()
 
-    sound_content = Queue()
-    sound_processor = SoundConsumer(sound_content)
+    sound_content = multiprocessing.Pipe()
+    sound_consumer = sound_processor.SoundConsumer(sound_content, _PLOT_HISTORY_COUNT)
 
     config = types.RecognitionConfig(
         encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
@@ -229,8 +211,7 @@ def main(argv):
     streaming_config = types.StreamingRecognitionConfig(
         config=config,
         interim_results=True)
-    sound_processor_worker = threading.Thread(target=sound_processor.consume_raw_audio)
-    sound_processor_worker.start()
+    sound_processor.start()
     with MicrophoneStream(RATE, CHUNK, sound_content) as stream:
         audio_generator = stream.generator()
         while True:
@@ -238,14 +219,14 @@ def main(argv):
              for seq, chunk_count, start_offset, end_offset, content in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
-            listen_print_loop(responses, caption_file, sound_processor)
+            listen_print_loop(responses, caption_file, sound_consumer)
             break
           except:
             traceback.print_exc()
           finally:
             if caption_file:
               caption_file.close()
-            sound_processor.stop()
+            sound_consumer.stop()
     print("ended")
     quit()
 

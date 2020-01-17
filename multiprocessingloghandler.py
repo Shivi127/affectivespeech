@@ -32,7 +32,7 @@ class ParentMultiProcessingLogHandler(MultiProcessingLogHandler):
             try:
                 record = self.queue.get(True, self.polltime)
                 self._handler.emit(record)
-            except Queue.Empty as e:
+            except queue.Empty as e:
                 pass
 
     def close(self):

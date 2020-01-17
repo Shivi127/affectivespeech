@@ -13,8 +13,9 @@ from show_text_fe import show_text
 from sound_state import *
 from plotutil import *
 
-PLOT_HISTORY_SECS = 2
-_PLOT_HISTORY_COUNT = int(PLOT_HISTORY_SECS / CHUNK_DURATION_SECS)
+VOLUME_SILENCE_RANGE = 1.10  # Consider anything within 10% above the minimum sound to be background noise
+VOLUME_RAISED_VARIANCE_THRESHOLD = 0.5
+VOLUME_LOWERED_VARIANCE_THRESHOLD = -1 * VOLUME_RAISED_VARIANCE_THRESHOLD
 
 STATE_SAMPLE_LIFETIME_SECS = 5
 PAUSE_MINIMUM_SPAN_SECS = 2
@@ -29,11 +30,18 @@ def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
 class SoundConsumer(Background):
+    def run():
+        self.consume_raw_audio()
+
+    def add_to_recent_window_rms(self, window_rms):
+        self._sound_windows.append(window_rms)
+
     def add_to_recent_samples(self, sample):
         self._sound_samples.append(sample)
 
-    def calculate_function_average_above_threshold_for_samples(self, function, threshold):
-        applied_function_results = [eligible_sample for eligible_sample in [function(sample) for sample in self._sound_samples if sample is not None] if eligible_sample > threshold]
+    def calculate_function_average_above_threshold_for_recent_samples(self, function, threshold):
+        slice_start = -1 * min(self.plot_sample_count, len(self._sound_samples))
+        applied_function_results = [eligible_sample for eligible_sample in [function(sample) for sample in list(self._sound_samples)[slice_start:] if sample is not None] if eligible_sample > threshold]
         if applied_function_results is None or not applied_function_results:
             return None
         return sum(applied_function_results) / len(applied_function_results)
@@ -51,14 +59,19 @@ class SoundConsumer(Background):
         sys.stderr.write('min of {}\n'.format(applied_function_results))
         return min(applied_function_results)
 
-    def __init__(self, audio_chunk_queue):
+    def __init__(self, audio_chunk_queue, plot_sample_count):
+        super(SoundConsumer, self).__init__(audio_chunk_pipe)
         self.__stop_flag = False
         self.current_state = STATE_VOLUME_CONSTANT
         self._audio_chunk_queue = audio_chunk_queue
         self._sound_samples = deque()
+        self._sound_windows = deque()
         self._state_changes = deque()
         self.current_pause_start = None
         self.current_pause_end = None
+        self.plot_sample_count = plot_sample_count
+        self.all_min = 9999
+        self.all_max = -9999
 
     def stop(self):
         self.__stop_flag = True
@@ -84,13 +97,14 @@ class SoundConsumer(Background):
 
     def _truncate_recent_samples(self):
         self._sound_samples = deque()
+        self._sound_windows = deque()
 
-    def plot_recent_samples_rms(self, sample_count):
-        slice_start = -1 * min(sample_count, len(self._sound_samples))
-        plot_samples = list(self._sound_samples)[slice_start:]
-        plots = [get_rms(sample) for sample in plot_samples if sample is not None]
-        sys.stderr.write('plot: {}\n'.format(plots))
-        draw_bar('sound level', 'RMS', plots)
+    def plot_recent_samples_rms(self):
+        slice_start = -1 * min(self.plot_sample_count, len(self._sound_samples))
+        samples_plot = [get_rms(sample) for sample in list(self._sound_samples)[slice_start:]]
+        windows_plot = [window for window in list(self._sound_windows)[slice_start:]]
+        sys.stderr.write('plot:\n {}\n {}\n'.format(samples_plot, windows_plot))
+        draw_graph('sound level', (self.all_min, self.all_max), 'RMS', samples_plot, windows_plot)
 
     def consume_raw_audio(self):
         sys.stderr.write("Waiting to consume audio\n")
@@ -101,6 +115,8 @@ class SoundConsumer(Background):
                 if sound_bite is None:
                     sys.stderr.write('NULL audio chunk\n')
                 sample_rms = get_rms(sound_bite)
+                self.all_min = min(sample_rms, self.all_min)
+                self.all_max = max(sample_rms, self.all_max)
                 window_min = self.calculate_function_min_for_samples(get_rms)
                 if window_min is None:
                     window_min = sample_rms
@@ -117,9 +133,10 @@ class SoundConsumer(Background):
                         sys.stderr.write('discard {} samples\n'.format(len(self._sound_samples)))
                         self._truncate_recent_samples()
  
-                window_rms = self.calculate_function_average_above_threshold_for_samples(get_rms, volume_silence_threshold)
+                window_rms = self.calculate_function_average_above_threshold_for_recent_samples(get_rms, volume_silence_threshold)
                 if window_rms is None:
                     window_rms = sample_rms
+                self.add_to_recent_window_rms(window_rms)
                 sample_rms_delta = sample_rms - window_rms
 
                 sample_rms_variance = float(sample_rms_delta) / window_rms
@@ -132,7 +149,7 @@ class SoundConsumer(Background):
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
                 sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
-                self.plot_recent_samples_rms(_PLOT_HISTORY_COUNT)
+                self.plot_recent_samples_rms()
             except Empty:
                 pass
         sys.stderr.write("Done consuming audio\n")
