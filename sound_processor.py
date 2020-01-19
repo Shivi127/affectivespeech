@@ -1,4 +1,6 @@
 import sys
+import logging
+
 from queue import Queue
 from queue import Empty
 
@@ -30,7 +32,9 @@ def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
 class SoundConsumer(Background):
-    def run():
+    def run(self):
+        self._initLogging()
+        logging.debug("run")
         self.consume_raw_audio()
 
     def add_to_recent_window_rms(self, window_rms):
@@ -56,14 +60,12 @@ class SoundConsumer(Background):
         applied_function_results = [function(sample) for sample in self._sound_samples if sample is not None]
         if applied_function_results is None or not applied_function_results:
             return None
-        sys.stderr.write('min of {}\n'.format(applied_function_results))
+        logging.debug('min of {}'.format(applied_function_results))
         return min(applied_function_results)
 
-    def __init__(self, audio_chunk_queue, plot_sample_count):
-        super(SoundConsumer, self).__init__(audio_chunk_pipe)
-        self.__stop_flag = False
+    def __init__(self, audio_chunk_pipe, log_queue, log_level, plot_sample_count):
+        super(SoundConsumer, self).__init__(audio_chunk_pipe, log_queue, log_level)
         self.current_state = STATE_VOLUME_CONSTANT
-        self._audio_chunk_queue = audio_chunk_queue
         self._sound_samples = deque()
         self._sound_windows = deque()
         self._state_changes = deque()
@@ -72,9 +74,6 @@ class SoundConsumer(Background):
         self.plot_sample_count = plot_sample_count
         self.all_min = 9999
         self.all_max = -9999
-
-    def stop(self):
-        self.__stop_flag = True
 
     def maintain_state_change_queue_lifetime(self):
         """
@@ -103,17 +102,17 @@ class SoundConsumer(Background):
         slice_start = -1 * min(self.plot_sample_count, len(self._sound_samples))
         samples_plot = [get_rms(sample) for sample in list(self._sound_samples)[slice_start:]]
         windows_plot = [window for window in list(self._sound_windows)[slice_start:]]
-        sys.stderr.write('plot:\n {}\n {}\n'.format(samples_plot, windows_plot))
+        logging.debug('plot: {} {}'.format(samples_plot, windows_plot))
         draw_graph('sound level', (self.all_min, self.all_max), 'RMS', samples_plot, windows_plot)
 
     def consume_raw_audio(self):
-        sys.stderr.write("Waiting to consume audio\n")
-        sys.stderr.flush()
-        while not self.__stop_flag:
+        logging.info("Waiting to consume audio")
+        while not self._exit.is_set():
             try:
-                seq, chunk_size, start_at, end_at, sound_bite = self._audio_chunk_queue.get(block=False)
+                logging.debug("recv")
+                seq, chunk_size, start_at, end_at, sound_bite = self._receive_pipe.recv()
                 if sound_bite is None:
-                    sys.stderr.write('NULL audio chunk\n')
+                    logging.debug('NULL audio chunk')
                 sample_rms = get_rms(sound_bite)
                 self.all_min = min(sample_rms, self.all_min)
                 self.all_max = max(sample_rms, self.all_max)
@@ -130,7 +129,7 @@ class SoundConsumer(Background):
                         self.current_pause_start = start_at
                     self.current_pause_end = end_at
                     if self.current_pause_end - self.current_pause_start >= PAUSE_MINIMUM_SPAN_SECS:
-                        sys.stderr.write('discard {} samples\n'.format(len(self._sound_samples)))
+                        logging.debug('discard {} samples\n'.format(len(self._sound_samples)))
                         self._truncate_recent_samples()
  
                 window_rms = self.calculate_function_average_above_threshold_for_recent_samples(get_rms, volume_silence_threshold)
@@ -148,9 +147,11 @@ class SoundConsumer(Background):
                 elif self.current_state != STATE_VOLUME_CONSTANT:
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
-                sys.stderr.write("frame {},{},{},{},{},{},{},{},{},{},{},{},{}\n".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
+                logging.debug("frame {},{},{},{},{},{},{},{},{},{},{},{},{}".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
                 self.plot_recent_samples_rms()
-            except Empty:
-                pass
-        sys.stderr.write("Done consuming audio\n")
-        sys.stderr.flush()
+            except EOFError:
+                break
+            except Exception:
+                logging.exception("error consuming audio")
+                break
+        logging.info("Done consuming audio")

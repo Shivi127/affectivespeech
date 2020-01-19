@@ -1,5 +1,9 @@
 import re
 import sys
+import multiprocessing
+import logging
+_DEBUG = logging.DEBUG
+import multiprocessingloghandler
 
 import traceback
 import threading
@@ -38,10 +42,10 @@ PAUSE_MINIMUM_SPAN_SECS = 2
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
-    def __init__(self, rate, chunk, chunk_queue=None):
+    def __init__(self, rate, chunk, sound_chunk_pipe=None):
         self._rate = rate
         self._chunk = chunk
-        self._chunk_queue = chunk_queue
+        self._sound_chunk_pipe = sound_chunk_pipe
 
         # Create a thread-safe buffer of audio data
         self._buff = queue.Queue()
@@ -118,8 +122,9 @@ class MicrophoneStream(object):
             soundbite = (frame_nbr, chunk_count, start_time, end_time, sound_chunk)
             start_time = None
             chunk_count = 0
-            if self._chunk_queue:
-                self._chunk_queue.put(soundbite)
+            if self._sound_chunk_pipe:
+                self._sound_chunk_pipe.send(soundbite)
+            logging.debug('sent')
             yield soundbite
 
 def parse_time(timestamp):
@@ -200,8 +205,15 @@ def main(argv):
  
     client = speech.SpeechClient()
 
-    sound_content = multiprocessing.Pipe()
-    sound_consumer = sound_processor.SoundConsumer(sound_content, _PLOT_HISTORY_COUNT)
+    log_stream = sys.stderr
+    log_queue = multiprocessing.Queue(100)
+    handler = multiprocessingloghandler.ParentMultiProcessingLogHandler(logging.StreamHandler(log_stream), log_queue)
+    logging.getLogger('').addHandler(handler)
+    logging.getLogger('').setLevel(_DEBUG)
+
+    ipc_pipe = multiprocessing.Pipe()
+    sound_send_pipe, _ = ipc_pipe
+    sound_consumer = sound_processor.SoundConsumer(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
 
     config = types.RecognitionConfig(
         encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
@@ -211,8 +223,8 @@ def main(argv):
     streaming_config = types.StreamingRecognitionConfig(
         config=config,
         interim_results=True)
-    sound_processor.start()
-    with MicrophoneStream(RATE, CHUNK, sound_content) as stream:
+    sound_consumer.start()
+    with MicrophoneStream(RATE, CHUNK, sound_send_pipe) as stream:
         audio_generator = stream.generator()
         while True:
           requests = (types.StreamingRecognizeRequest(audio_content=content)
@@ -223,12 +235,19 @@ def main(argv):
             break
           except:
             traceback.print_exc()
-          finally:
-            if caption_file:
-              caption_file.close()
-            sound_consumer.stop()
+    if caption_file:
+      caption_file.close()
+    _, unused_pipe = ipc_pipe
+    unused_pipe.close()
+    sound_send_pipe.close()
+    logging.info("stopping background process")
+    sound_consumer.stop()
+    sound_consumer.join()
+    logging.info("logged: main done")
+    logging.shutdown()
+
     print("ended")
-    quit()
+    sys.exit(0)
 
 if __name__ == '__main__':
     main(sys.argv)

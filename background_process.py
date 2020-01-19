@@ -23,14 +23,13 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 class Background(multiprocessing.Process):
-    def __init__(self, foreground_pipe, log_queue, log_level):
+    def __init__(self, ipc_pipe, log_queue, log_level):
         super(Background,self).__init__()
-        i, o = foreground_pipe
+        self._send_pipe,self._receive_pipe = ipc_pipe
         self._exit = multiprocessing.Event()
         logging.debug("Event initially {}".format(self._exit.is_set()))
         self._log_queue = log_queue
         self._log_level = log_level
-        self._foreground_pipe = i
         self._stop_producing = False
         self._stop_processing = False
         self._work_queue = deque()
@@ -60,7 +59,6 @@ class Background(multiprocessing.Process):
             logging.debug("waiting for exit event")
             self._exit.wait()
             logging.debug("exit event received")
- 
         except Exception as e:
             logging.error("***background exception: {}".format(e))
         logging.debug("***background terminating")
@@ -68,6 +66,15 @@ class Background(multiprocessing.Process):
         self._stopProcessing()
         self._producer.join()
         self._processor.join()
+        self._send_pipe.close()
+        logging.info("msgs from foreground")
+        while True:
+            try:
+                msg = self._receive_pipe.recv()
+                logging.info("<msg> {}".format(msg))
+            except EOFError:
+                break
+        logging.info("end of msgs from foreground")
 
     def _stopProducing(self):
         self._stop_producing = True
@@ -89,7 +96,7 @@ class Background(multiprocessing.Process):
         while not self._stop_processing:
             try:
                 message = self._work_queue.pop() 
-                self._foreground_pipe.send("i={}".format(message))
+                self._send_pipe.send("i={}".format(message))
             except IndexError:
                 pass
         logging.debug("stopped performing")
@@ -102,29 +109,29 @@ if __name__ == '__main__':
     logging.getLogger('').setLevel(_DEBUG)
 
     logging.debug("starting main")
-    background_pipe = multiprocessing.Pipe()
-    background_process = Background(background_pipe, log_queue, logging.getLogger('').getEffectiveLevel())
+    ipc_pipe = multiprocessing.Pipe()
+    background_process = Background(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel())
+    send_pipe, receive_pipe = ipc_pipe
     try:
-        i, o = background_pipe
         background_process.start()
-        logging.debug("waiting for messages")
         c = 0
-        while not STOP:
-            message = o.recv()
+        logging.debug("waiting for messages")
+        while not STOP and c < 5:
+            message = receive_pipe.recv()
             logging.info("main received message: {}".format(message))
             c += 1
-            if c > 5:
-                break;
-            time.sleep(2)
+        logging.info("main sending completion message")
+        send_pipe.send('complete')
     except Exception as e:
         logging.error("Error in main: {}".format(e))
-    logging.info("ending main")
+        send_pipe.send("error")
+    logging.info("sending stop signal")
     background_process.stop()
+    logging.info("closing pipe")
+    send_pipe.close()
     logging.info("waiting for background process to exit")
-    time.sleep(2)
     background_process.join()
-    time.sleep(2)
     logging.info("logged: main done")
     logging.shutdown()
-    logging.error("main post-logging")
+    logging.info("main post-logging")
     sys.exit() 
