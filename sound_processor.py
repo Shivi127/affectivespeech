@@ -1,16 +1,19 @@
 import sys
 import logging
-
 from queue import Queue
 from queue import Empty
-
-from background_process import Background
-
-import audioop
 import time
 from datetime import datetime
 from collections import deque
 
+import numpy as np
+import matplotlib.pyplot as plt
+import librosa
+import soundfile
+import audioop
+import librosa.display
+
+from background_process import Background
 from show_text_fe import show_text
 from sound_state import *
 from plotutil import *
@@ -31,6 +34,22 @@ def get_rms(audio_chunk):
 def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
+def extract_audio_channels(sound_chunk, sampling_rate):
+    foreground_channel = None
+    background_channel = None
+    overall_channel = None
+
+    # compute the spectrogram magnitude and phase
+    spectrogram_full, phase = librosa.magphase(librosa.stft(source_audio))
+
+    spectrogram_filter = librosa.decompose.nn_filter(spectrogram_full,
+                        aggregate=np.median, metric='cosine',
+                        width=int(librosa.time_to_frames(2, sr=sampling_rate)))
+
+    S_filter = np.minimum(S_full, S_filter)
+
+    return (overall_channel, background_channel, foreground_channel)
+ 
 class SoundConsumer(Background):
     def run(self):
         self._initLogging()
