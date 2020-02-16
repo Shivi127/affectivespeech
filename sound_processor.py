@@ -2,6 +2,7 @@ import sys
 import logging
 from queue import Queue
 from queue import Empty
+import io
 import time
 from datetime import datetime
 from collections import deque
@@ -38,9 +39,11 @@ def extract_audio_channels(sound_chunk, sampling_rate):
     foreground_channel = None
     background_channel = None
     overall_channel = None
+    audio_fragment = io.BytesIO(sound_chunk)
+    audio_data, samplerate = soundfile.read(audio_fragment)
 
     # compute the spectrogram magnitude and phase
-    spectrogram_full, phase = librosa.magphase(librosa.stft(source_audio))
+    spectrogram_full, phase = librosa.magphase(librosa.stft(audio_data))
 
     spectrogram_filter = librosa.decompose.nn_filter(spectrogram_full,
                         aggregate=np.median, metric='cosine',
@@ -82,7 +85,7 @@ class SoundConsumer(Background):
         logging.debug('min of {}'.format(applied_function_results))
         return min(applied_function_results)
 
-    def __init__(self, audio_chunk_pipe, log_queue, log_level, plot_sample_count):
+    def __init__(self, audio_chunk_pipe, sampling_rate, log_queue, log_level, plot_sample_count):
         super(SoundConsumer, self).__init__(audio_chunk_pipe, log_queue, log_level)
         self.current_state = STATE_VOLUME_CONSTANT
         self._sound_samples = deque()
@@ -91,6 +94,7 @@ class SoundConsumer(Background):
         self.current_pause_start = None
         self.current_pause_end = None
         self.plot_sample_count = plot_sample_count
+        self.sampling_rate = sampling_rate
         self.all_min = 9999
         self.all_max = -9999
 
@@ -132,6 +136,7 @@ class SoundConsumer(Background):
                 seq, chunk_size, start_at, end_at, sound_bite = self._receive_pipe.recv()
                 if sound_bite is None:
                     logging.debug('NULL audio chunk')
+                extract_audio_channels(sound_bite, self.sampling_rate)
                 sample_rms = get_rms(sound_bite)
                 self.all_min = min(sample_rms, self.all_min)
                 self.all_max = max(sample_rms, self.all_max)

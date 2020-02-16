@@ -213,7 +213,7 @@ def main(argv):
 
     ipc_pipe = multiprocessing.Pipe()
     sound_send_pipe, _ = ipc_pipe
-    sound_consumer = sound_processor.SoundConsumer(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
+    sound_consumer = sound_processor.SoundConsumer(ipc_pipe, RATE, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
 
     config = types.RecognitionConfig(
         encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
