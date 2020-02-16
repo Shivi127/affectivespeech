@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 import sys
 import logging
 from queue import Queue
@@ -51,19 +50,7 @@ def extract_audio_channels(sound_chunk, sampling_rate):
 
     return (overall_channel, background_channel, foreground_channel)
  
-class SoundConsumer(multiprocessing.Process):
-    def __init__(self, audio_stream, log_queue, log_level):
-        super(Background,self).__init__()
-        self._audio_stream = audio_stream
-        self._log_queue = log_queue
-        self._log_level = log_level
-
-    def _initLogging(self):
-        handler = multiprocessingloghandler.ChildMultiProcessingLogHandler(self._log_queue)
-        logging.getLogger(str(os.getpid())).addHandler(handler)
-        logging.getLogger(str(os.getpid())).setLevel(self._log_level)
-
-
+class SoundConsumer(Background):
     def run(self):
         self._initLogging()
         logging.debug("run")
@@ -139,54 +126,51 @@ class SoundConsumer(multiprocessing.Process):
 
     def consume_raw_audio(self):
         logging.info("Waiting to consume audio")
-        input_exhausted = False
-        while not input_exhausted:
+        while not self._exit.is_set():
             try:
-                logging.debug("reading audio stream")
-                sound_bite = self._audio_stream.read()
+                logging.debug("recv")
+                seq, chunk_size, start_at, end_at, sound_bite = self._receive_pipe.recv()
                 if sound_bite is None:
                     logging.debug('NULL audio chunk')
-            except EOFError as e:
-                logging.info('end of audio stream')
-                input_exhausted = True
-                continue
-            except:
-                logging.exception();
-                break 
-            sample_rms = get_rms(sound_bite)
-            self.all_min = min(sample_rms, self.all_min)
-            self.all_max = max(sample_rms, self.all_max)
-            window_min = self.calculate_function_min_for_samples(get_rms)
-            if window_min is None:
-                window_min = sample_rms
-            volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
-            self.add_to_recent_samples(sound_bite)
-            if sample_rms > volume_silence_threshold:
-                self.current_pause_start = None
-                self.current_pause_end = None
-            else:
-                if self.current_pause_start is None:
-                    self.current_pause_start = start_at
-                self.current_pause_end = end_at
-                if self.current_pause_end - self.current_pause_start >= PAUSE_MINIMUM_SPAN_SECS:
-                    logging.debug('discard {} samples\n'.format(len(self._sound_samples)))
-                    self._truncate_recent_samples()
+                sample_rms = get_rms(sound_bite)
+                self.all_min = min(sample_rms, self.all_min)
+                self.all_max = max(sample_rms, self.all_max)
+                window_min = self.calculate_function_min_for_samples(get_rms)
+                if window_min is None:
+                    window_min = sample_rms
+                volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
+                self.add_to_recent_samples(sound_bite)
+                if sample_rms > volume_silence_threshold:
+                    self.current_pause_start = None
+                    self.current_pause_end = None
+                else:
+                    if self.current_pause_start is None:
+                        self.current_pause_start = start_at
+                    self.current_pause_end = end_at
+                    if self.current_pause_end - self.current_pause_start >= PAUSE_MINIMUM_SPAN_SECS:
+                        logging.debug('discard {} samples\n'.format(len(self._sound_samples)))
+                        self._truncate_recent_samples()
+ 
+                window_rms = self.calculate_function_average_above_threshold_for_recent_samples(get_rms, volume_silence_threshold)
+                if window_rms is None:
+                    window_rms = sample_rms
+                self.add_to_recent_window_rms(window_rms)
+                sample_rms_delta = sample_rms - window_rms
 
-            window_rms = self.calculate_function_average_above_threshold_for_recent_samples(get_rms, volume_silence_threshold)
-            if window_rms is None:
-                window_rms = sample_rms
-            self.add_to_recent_window_rms(window_rms)
-            sample_rms_delta = sample_rms - window_rms
+                sample_rms_variance = float(sample_rms_delta) / window_rms
 
-            sample_rms_variance = float(sample_rms_delta) / window_rms
-
-            if sample_rms_variance >= VOLUME_RAISED_VARIANCE_THRESHOLD:
-                self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
-            elif sample_rms_delta <= VOLUME_LOWERED_VARIANCE_THRESHOLD:
-                self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
-            elif self.current_state != STATE_VOLUME_CONSTANT:
-                self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
+                if sample_rms_variance >= VOLUME_RAISED_VARIANCE_THRESHOLD:
+                    self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
+                elif sample_rms_delta <= VOLUME_LOWERED_VARIANCE_THRESHOLD:
+                    self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
+                elif self.current_state != STATE_VOLUME_CONSTANT:
+                    self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
-            logging.debug("frame {},{},{},{},{},{},{},{},{},{},{},{},{}".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
-            self.plot_recent_samples_rms()
-        logging.info("Done consuming audio stream")
+                logging.debug("frame {},{},{},{},{},{},{},{},{},{},{},{},{}".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
+                self.plot_recent_samples_rms()
+            except EOFError:
+                break
+            except Exception:
+                logging.exception("error consuming audio")
+                break
+        logging.info("Done consuming audio")
