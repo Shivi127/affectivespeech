@@ -28,7 +28,7 @@ from sound_state import *
 
 # Audio recording parameters
 RATE = 16000
-CHUNK_DURATION_SECS = 0.10  # 100 ms chunks
+CHUNK_DURATION_SECS = 2.0 # 2000 ms chunks
 CHUNK = int(RATE * CHUNK_DURATION_SECS)
 
 PLOT_HISTORY_SECS = 2

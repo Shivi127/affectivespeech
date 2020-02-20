@@ -35,23 +35,38 @@ def get_rms(audio_chunk):
 def get_avg(audio_chunk):
     return audioop.avg(audio_chunk, 2)
 
-def extract_audio_channels(sound_chunk, sampling_rate):
-    foreground_channel = None
-    background_channel = None
-    overall_channel = None
-    audio_fragment = io.BytesIO(sound_chunk)
-    audio_data, samplerate = soundfile.read(audio_fragment)
+def convert_audio_data(sound_bite):
+    logging.debug(type(sound_bite))
+    logging.debug(len(sound_bite))
+    audio_data = np.frombuffer(sound_bite, dtype=np.int16).astype(np.float32)
+    logging.debug(type(audio_data))
+    logging.debug(len(audio_data))
+    logging.debug(type(audio_data[0]))
+    return audio_data
 
-    # compute the spectrogram magnitude and phase
+def extract_audio_spectrograms(audio_data, sampling_rate):
+    # Compute the spectrogram magnitude and phase
     spectrogram_full, phase = librosa.magphase(librosa.stft(audio_data))
 
     spectrogram_filter = librosa.decompose.nn_filter(spectrogram_full,
-                        aggregate=np.median, metric='cosine',
-                        width=int(librosa.time_to_frames(2, sr=sampling_rate)))
+        aggregate=np.median, metric='cosine',
+        width=int(librosa.time_to_frames(2, sr=sampling_rate)))
 
-    S_filter = np.minimum(S_full, S_filter)
+    spectrogram_filter = np.minimum(spectrogram_full, spectrogram_filter)
 
-    return (overall_channel, background_channel, foreground_channel)
+    margin_i, margin_v = 2, 10
+    power = 2
+
+    mask_i = librosa.util.softmask(spectrogram_filter, 
+        margin_i * (spectrogram_full - spectrogram_filter), power=power)
+
+    mask_v = librosa.util.softmask(spectrogram_full - spectrogram_filter,
+         margin_v * spectrogram_filter, power=power)
+
+    spectrogram_foreground = mask_v * spectrogram_full
+    spectrogram_background = mask_i * spectrogram_full
+
+    return (spectrogram_full, spectrogram_background, spectrogram_foreground)
  
 class SoundConsumer(Background):
     def run(self):
@@ -136,7 +151,8 @@ class SoundConsumer(Background):
                 seq, chunk_size, start_at, end_at, sound_bite = self._receive_pipe.recv()
                 if sound_bite is None:
                     logging.debug('NULL audio chunk')
-                extract_audio_channels(sound_bite, self.sampling_rate)
+                audio_data = convert_audio_data(sound_bite)
+                full_spectrogram, background_spectrogram, foreground_spectogram = extract_audio_spectrograms(audio_data, self.sampling_rate)
                 sample_rms = get_rms(sound_bite)
                 self.all_min = min(sample_rms, self.all_min)
                 self.all_max = max(sample_rms, self.all_max)
@@ -172,7 +188,7 @@ class SoundConsumer(Background):
                     self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
                     
                 logging.debug("frame {},{},{},{},{},{},{},{},{},{},{},{},{}".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
-                self.plot_recent_samples_rms()
+                #self.plot_recent_samples_rms()
             except EOFError:
                 break
             except Exception:

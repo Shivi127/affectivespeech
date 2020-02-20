@@ -1,3 +1,4 @@
+import io
 import numpy as np
 import matplotlib.pyplot as plt
 import librosa
@@ -82,7 +83,9 @@ print("background({}) max {} power {}: {}".format(len(background_audio), audioop
 
 ####################################################
 # Write out the streams as sound files for later verification
+audio_stream = io.BytesIO()
 soundfile.write('orig.WAV', source_audio, sr)
+#soundfile.write(audio_stream, source_audio, sr, format='WAV')
 soundfile.write('full.WAV', full_audio, sr)
 soundfile.write('fg.WAV', foreground_audio, sr)
 soundfile.write('bg.WAV', background_audio, sr)
