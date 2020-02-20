@@ -110,8 +110,8 @@ class SoundConsumer(Background):
         self.current_pause_end = None
         self.plot_sample_count = plot_sample_count
         self.sampling_rate = sampling_rate
-        self.all_min = 9999
-        self.all_max = -9999
+        self.foreground_min = self.sample_min = 9999
+        self.foreground_max = self.sample_max = -9999
 
     def maintain_state_change_queue_lifetime(self):
         """
@@ -152,43 +152,23 @@ class SoundConsumer(Background):
                 if sound_bite is None:
                     logging.debug('NULL audio chunk')
                 audio_data = convert_audio_data(sound_bite)
-                full_spectrogram, background_spectrogram, foreground_spectogram = extract_audio_spectrograms(audio_data, self.sampling_rate)
+                full_spectrogram, background_spectrogram, foreground_spectrogram = extract_audio_spectrograms(audio_data, self.sampling_rate)
+
                 sample_rms = get_rms(sound_bite)
-                self.all_min = min(sample_rms, self.all_min)
-                self.all_max = max(sample_rms, self.all_max)
-                window_min = self.calculate_function_min_for_samples(get_rms)
-                if window_min is None:
-                    window_min = sample_rms
-                volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
-                self.add_to_recent_samples(sound_bite)
-                if sample_rms > volume_silence_threshold:
-                    self.current_pause_start = None
-                    self.current_pause_end = None
-                else:
-                    if self.current_pause_start is None:
-                        self.current_pause_start = start_at
-                    self.current_pause_end = end_at
-                    if self.current_pause_end - self.current_pause_start >= PAUSE_MINIMUM_SPAN_SECS:
-                        logging.debug('discard {} samples\n'.format(len(self._sound_samples)))
-                        self._truncate_recent_samples()
- 
-                window_rms = self.calculate_function_average_above_threshold_for_recent_samples(get_rms, volume_silence_threshold)
-                if window_rms is None:
-                    window_rms = sample_rms
-                self.add_to_recent_window_rms(window_rms)
-                sample_rms_delta = sample_rms - window_rms
+                self.sample_min = min(sample_rms, self.sample_min)
+                self.sample_max = max(sample_rms, self.sample_max)
 
-                sample_rms_variance = float(sample_rms_delta) / window_rms
-
-                if sample_rms_variance >= VOLUME_RAISED_VARIANCE_THRESHOLD:
-                    self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
-                elif sample_rms_delta <= VOLUME_LOWERED_VARIANCE_THRESHOLD:
-                    self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
-                elif self.current_state != STATE_VOLUME_CONSTANT:
-                    self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
+                full_audio = librosa.istft(full_spectrogram)
+                full_rms = get_rms(full_audio)
+                self.full_min = min(full_rms, self.full_min)
+                self.full_max = max(full_rms, self.full_max)
                     
-                logging.debug("frame {},{},{},{},{},{},{},{},{},{},{},{},{}".format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
-                #self.plot_recent_samples_rms()
+                foreground_audio = librosa.istft(foreground_spectrogram)
+                foreground_rms = get_rms(foreground_audio)
+                self.foreground_min = min(foreground_rms, self.foreground_min)
+                self.foreground_max = max(foreground_rms, self.foreground_max)
+                    
+                logging.debug("frame {}, sample {}, full {}, foreground {}".format(seq, sample_rms, full_rms, foreground_rms))
             except EOFError:
                 break
             except Exception:
