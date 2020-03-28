@@ -67,10 +67,10 @@ class SoundConsumer(Background):
     def __init__(self, audio_chunk_pipe, log_queue, log_level, plot_sample_count):
         super(SoundConsumer, self).__init__(audio_chunk_pipe, log_queue, log_level)
         self.current_state = STATE_VOLUME_CONSTANT
-        self._sound_samples = deque(maxlen=plot_sample_count+1)
-        self._sample_timestamps = deque(maxlen=plot_sample_count+1)
-        self._sound_windows = deque(maxlen=plot_sample_count+1)
-        self._state_changes = deque(maxlen=plot_sample_count+1)
+        self._sound_samples = deque(maxlen=plot_sample_count)
+        self._sample_timestamps = deque(maxlen=plot_sample_count)
+        self._sound_windows = deque(maxlen=plot_sample_count)
+        self._state_changes = deque(maxlen=plot_sample_count)
         self.plot_sample_count = plot_sample_count
         self.all_min = 9999
         self.all_max = -9999
@@ -100,10 +100,12 @@ class SoundConsumer(Background):
         windows_plot = [window for window in list(self._sound_windows)[slice_start:]]
         logging.debug('plot: {} {}'.format(samples_plot, windows_plot))
         sample_labels = []
-        prev_timestamp = 0.0
+        prev_timestamp = None
         for timestamp in list(self._sample_timestamps)[slice_start:]:
+            if prev_timestamp is None:
+                prev_timestamp = timestamp
             if int(timestamp) != int(prev_timestamp):
-                sample_labels.append(int(timestamp))
+                sample_labels.append(time.strftime('%T', time.gmtime(timestamp)))
                 prev_timestamp = timestamp
             else:
                 sample_labels.append('')
