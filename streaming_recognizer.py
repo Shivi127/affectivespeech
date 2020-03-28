@@ -28,10 +28,10 @@ from sound_state import *
 
 # Audio recording parameters
 RATE = 16000
-CHUNK_DURATION_SECS = 0.5 # 500 ms chunks
+CHUNK_DURATION_SECS = 0.10  # 100 ms chunks
 CHUNK = int(RATE * CHUNK_DURATION_SECS)
 
-PLOT_HISTORY_SECS = 20
+PLOT_HISTORY_SECS = 2
 _PLOT_HISTORY_COUNT = int(PLOT_HISTORY_SECS / CHUNK_DURATION_SECS)
 
 CAPTION_DURATION_SECS = 60.0
@@ -188,7 +188,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
 
         # Exit recognition if our exit word is said 3 times
         if result.is_final and len(re.findall(r'quit', phrase, re.I)) == 3:
-            logging.info('Exiting')
+            print('Exiting..')
             show_text('Exiting..')
             break
 
@@ -213,7 +213,7 @@ def main(argv):
 
     ipc_pipe = multiprocessing.Pipe()
     sound_send_pipe, _ = ipc_pipe
-    sound_consumer = sound_processor.SoundConsumer(ipc_pipe, RATE, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
+    sound_consumer = sound_processor.SoundConsumer(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
 
     config = types.RecognitionConfig(
         encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
@@ -238,7 +238,6 @@ def main(argv):
     if caption_file:
       caption_file.close()
     _, unused_pipe = ipc_pipe
-    logging.info('closing pipes')
     unused_pipe.close()
     sound_send_pipe.close()
     logging.info("stopping background process")
@@ -247,7 +246,7 @@ def main(argv):
     logging.info("logged: main done")
     logging.shutdown()
 
-    logging.info("ended")
+    print("ended")
     sys.exit(0)
 
 if __name__ == '__main__':

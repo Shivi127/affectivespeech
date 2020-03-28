@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-def draw_graph(title, y_limits, y_label, bar_values, line_values=None):
+def draw_graph(title, y_limits, y_label, bar_values, line_values):
   intervals = range(-1*len(bar_values) + 1, 1)
   y_pos = np.arange(len(intervals))
   plt.cla()
@@ -12,8 +12,7 @@ def draw_graph(title, y_limits, y_label, bar_values, line_values=None):
   plt.title(title)
 
   plt.bar(y_pos, bar_values, align='center', alpha=0.5)
-  if line_values:
-    plt.plot(y_pos, line_values)
+  plt.plot(y_pos, line_values)
 
   if y_limits is not None:
     plt.ylim(y_limits)
