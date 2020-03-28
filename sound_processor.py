@@ -67,12 +67,10 @@ class SoundConsumer(Background):
     def __init__(self, audio_chunk_pipe, log_queue, log_level, plot_sample_count):
         super(SoundConsumer, self).__init__(audio_chunk_pipe, log_queue, log_level)
         self.current_state = STATE_VOLUME_CONSTANT
-        self._sound_samples = deque()
-        self._sample_timestamps = deque()
-        self._sound_windows = deque()
-        self._state_changes = deque()
-        self.current_pause_start = None
-        self.current_pause_end = None
+        self._sound_samples = deque(maxlen=plot_sample_count+1)
+        self._sample_timestamps = deque(maxlen=plot_sample_count+1)
+        self._sound_windows = deque(maxlen=plot_sample_count+1)
+        self._state_changes = deque(maxlen=plot_sample_count+1)
         self.plot_sample_count = plot_sample_count
         self.all_min = 9999
         self.all_max = -9999
@@ -95,11 +93,6 @@ class SoundConsumer(Background):
         sample = (state, change_sample_start_at, change_sample_end_at)
         self._state_changes.append(sample)
         self.maintain_state_change_queue_lifetime()
-
-    def _truncate_recent_samples(self):
-        self._sound_samples = deque()
-        self._sample_timestamps = deque()
-        self._sound_windows = deque()
 
     def plot_recent_samples_rms(self):
         slice_start = -1 * min(self.plot_sample_count, len(self._sound_samples))
@@ -132,16 +125,6 @@ class SoundConsumer(Background):
                     window_min = sample_rms
                 volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
                 self.add_to_recent_samples(sound_bite, start_at)
-                if sample_rms > volume_silence_threshold:
-                    self.current_pause_start = None
-                    self.current_pause_end = None
-                else:
-                    if self.current_pause_start is None:
-                        self.current_pause_start = start_at
-                    self.current_pause_end = end_at
-                    if self.current_pause_end - self.current_pause_start >= PAUSE_MINIMUM_SPAN_SECS:
-                        logging.debug('discard {} samples\n'.format(len(self._sound_samples)))
-                        self._truncate_recent_samples()
  
                 window_rms = self.calculate_function_average_above_threshold_for_recent_samples(get_rms, volume_silence_threshold)
                 if window_rms is None:
