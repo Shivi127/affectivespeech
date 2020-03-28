@@ -233,9 +233,10 @@ def main(argv):
           responses = client.streaming_recognize(streaming_config, requests)
           try:
             listen_print_loop(responses, caption_file, sound_consumer)
-            break
           except:
             traceback.print_exc()
+          finally:
+            break
     if caption_file:
       caption_file.close()
     _, unused_pipe = ipc_pipe
