@@ -40,8 +40,9 @@ class SoundConsumer(Background):
     def add_to_recent_window_rms(self, window_rms):
         self._sound_windows.append(window_rms)
 
-    def add_to_recent_samples(self, sample):
+    def add_to_recent_samples(self, sample, timestamp):
         self._sound_samples.append(sample)
+        self._sample_timestamps.append(timestamp)
 
     def calculate_function_average_above_threshold_for_recent_samples(self, function, threshold):
         slice_start = -1 * min(self.plot_sample_count, len(self._sound_samples))
@@ -67,6 +68,7 @@ class SoundConsumer(Background):
         super(SoundConsumer, self).__init__(audio_chunk_pipe, log_queue, log_level)
         self.current_state = STATE_VOLUME_CONSTANT
         self._sound_samples = deque()
+        self._sample_timestamps = deque()
         self._sound_windows = deque()
         self._state_changes = deque()
         self.current_pause_start = None
@@ -96,6 +98,7 @@ class SoundConsumer(Background):
 
     def _truncate_recent_samples(self):
         self._sound_samples = deque()
+        self._sample_timestamps = deque()
         self._sound_windows = deque()
 
     def plot_recent_samples_rms(self):
@@ -103,7 +106,15 @@ class SoundConsumer(Background):
         samples_plot = [get_rms(sample) for sample in list(self._sound_samples)[slice_start:]]
         windows_plot = [window for window in list(self._sound_windows)[slice_start:]]
         logging.debug('plot: {} {}'.format(samples_plot, windows_plot))
-        draw_graph('sound level', (self.all_min, self.all_max), 'RMS', samples_plot, windows_plot)
+        sample_labels = []
+        prev_timestamp = 0.0
+        for timestamp in list(self._sample_timestamps)[slice_start:]:
+            if int(timestamp) != int(prev_timestamp):
+                sample_labels.append(int(timestamp))
+                prev_timestamp = timestamp
+            else:
+                sample_labels.append('')
+        draw_graph('sound level', (self.all_min, self.all_max), 'RMS', samples_plot, windows_plot, sample_labels)
 
     def consume_raw_audio(self):
         logging.info("Waiting to consume audio")
@@ -120,7 +131,7 @@ class SoundConsumer(Background):
                 if window_min is None:
                     window_min = sample_rms
                 volume_silence_threshold = window_min * VOLUME_SILENCE_RANGE
-                self.add_to_recent_samples(sound_bite)
+                self.add_to_recent_samples(sound_bite, start_at)
                 if sample_rms > volume_silence_threshold:
                     self.current_pause_start = None
                     self.current_pause_end = None

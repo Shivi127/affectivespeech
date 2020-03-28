@@ -9,6 +9,7 @@ LINES=int(LINES)
 LINE_LENGTH=int(LINE_LENGTH)
 LINES -= 1
 sys.stderr.write("lines: {} cols: {}\n".format(LINES,LINE_LENGTH))
+sys.stderr.flush()
 DISPLAY_COMMAND = draw_text_on_console
 
 PAD_LINES = ['' for i in range(LINES)]

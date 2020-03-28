@@ -96,20 +96,21 @@ class MicrophoneStream(object):
             if chunk is None:
                 return
             data = [chunk]
+            received_at = time.time()
+            if end_time and received_at < end_time:
+                logging.error('dervied chunk start time < previous chunk end time')
             chunk_count += 1
+            # Derive the start time from the first chunk of a buffered set 
             if not start_time:
-                if end_time:
-                    start_time = end_time
-                else:
-                    start_time = time.time() - CHUNK_DURATION_SECS
+                start_time = received_at - CHUNK_DURATION_SECS
 
             # Now consume whatever other data's still buffered.
             while True:
                 try:
                     chunk = self._buff.get(block=False)
+                    received_at = time.time()
                     if chunk is None:
-                        sys.stderr.write('null audio chunk\n')
-                        sys.stderr.flush()
+                        logging.warning('null audio chunk')
                         return
                     data.append(chunk)
                     chunk_count += 1
@@ -118,7 +119,7 @@ class MicrophoneStream(object):
 
             frame_nbr += 1
             sound_chunk = b''.join(data)
-            end_time = time.time()
+            end_time = received_at
             soundbite = (frame_nbr, chunk_count, start_time, end_time, sound_chunk)
             start_time = None
             chunk_count = 0
@@ -171,7 +172,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
             times.append((word.word, span))
         # Handle words only being returned for final results.  https://issuetracker.google.com/issues/144757737
         if words:
-            sys.stderr.write('word times: {}\n'.format(times))
+            logging.info('word times: %s'.str(times))
             phrase = " ".join([word.word for word in words])
         else:
             phrase = result.alternatives[0].transcript
@@ -182,7 +183,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-        sys.stderr.write('state: {}\n'.format(sound_consumer.current_state))
+        logging.info('state: %s'.str(sound_consumer.current_state))
         show_text(phrase, sound_consumer.current_state)
         last_phrase = phrase
 
