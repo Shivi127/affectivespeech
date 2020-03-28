@@ -3,7 +3,7 @@ cmd_dir=`dirname $0`
 PYTHON=$(which python3)
 
 cd $cmd_dir
-export GOOGLE_APPLICATION_CREDENTIALS=`ls ../piday*json | head -1`
+export GOOGLE_APPLICATION_CREDENTIALS=`ls ../cred*json | head -1`
 echo $GOOGLE_APPLICATION_CREDENTIALS
 $PYTHON show_text_fe.py 'waiting for IP'
 while :

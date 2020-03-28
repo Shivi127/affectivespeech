@@ -157,6 +157,7 @@ class SoundConsumer(Background):
                 sample_rms = get_rms(sound_bite)
                 self.sample_min = min(sample_rms, self.sample_min)
                 self.sample_max = max(sample_rms, self.sample_max)
+                self.plot_recent_samples_rms()
 
                 full_audio = librosa.istft(full_spectrogram)
                 full_rms = get_rms(full_audio)
