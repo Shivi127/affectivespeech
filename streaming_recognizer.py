@@ -172,7 +172,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
             times.append((word.word, span))
         # Handle words only being returned for final results.  https://issuetracker.google.com/issues/144757737
         if words:
-            logging.info('word times: %s'.str(times))
+            logging.info('word times: %s', str(times))
             phrase = " ".join([word.word for word in words])
         else:
             phrase = result.alternatives[0].transcript
@@ -183,7 +183,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-        logging.info('state: %s'.str(sound_consumer.current_state))
+        logging.info('state: %s', str(sound_consumer.current_state))
         show_text(phrase, sound_consumer.current_state)
         last_phrase = phrase
 
