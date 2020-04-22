@@ -2,7 +2,7 @@ import re
 import sys
 import multiprocessing
 import logging
-_DEBUG = logging.DEBUG
+_DEBUG = logging.INFO
 import multiprocessingloghandler
 
 import traceback
@@ -98,7 +98,7 @@ class MicrophoneStream(object):
             data = [chunk]
             received_at = time.time()
             if end_time and received_at < end_time:
-                logging.error('dervied chunk start time < previous chunk end time')
+                logging.error('derived chunk start time < previous chunk end time')
             chunk_count += 1
             # Derive the start time from the first chunk of a buffered set 
             if not start_time:
@@ -128,7 +128,7 @@ class MicrophoneStream(object):
             logging.debug('sent')
             yield soundbite
 
-def parse_time(timestamp):
+def parse_timestamp_to_secs(timestamp):
     span = timestamp.seconds
     nanos = timestamp.nanos
     span += float(nanos) / 1000000000.0
@@ -149,8 +149,10 @@ def listen_print_loop(responses, caption_file, sound_consumer):
     with timestamps every minute.
     """
     last_phrase = ''
+    started_at = 0
     last_caption_timestamp = 0
     for response in responses:
+        logging.debug("response: {}".format(response))
         if not response.results:
             continue
 
@@ -161,13 +163,15 @@ def listen_print_loop(responses, caption_file, sound_consumer):
         if not result.alternatives:
             continue
       
+        result_end_time = parse_timestamp_to_secs(result.result_end_time)
+
         # Display the transcription of the top alternative.
         words = result.alternatives[0].words
 
         times = []
         for word in words:
-            start = parse_time(word.start_time)
-            end = parse_time(word.end_time)
+            start = parse_timestamp_to_secs(word.start_time)
+            end = parse_timestamp_to_secs(word.end_time)
             span = (start, end, (end-start))
             times.append((word.word, span))
         # Handle words only being returned for final results.  https://issuetracker.google.com/issues/144757737
@@ -176,6 +180,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
             phrase = " ".join([word.word for word in words])
         else:
             phrase = result.alternatives[0].transcript
+            logging.info("word %s at %f", phrase.split(" ")[-1:], result_end_time)
         if caption_file and result.is_final:
             caption = phrase+'\n'
             if time.time() - last_caption_timestamp > CAPTION_DURATION_SECS:
