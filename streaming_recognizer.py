@@ -51,6 +51,11 @@ class MicrophoneStream(object):
         self._buff = queue.Queue()
         self.closed = True
 
+        self._audio_base_time = None
+
+    def get_start_time(self):
+        return self._audio_base_time
+
     def __enter__(self):
         self._audio_interface = pyaudio.PyAudio()
         self._audio_stream = self._audio_interface.open(
@@ -66,6 +71,8 @@ class MicrophoneStream(object):
         )
 
         self.closed = False
+        if self._audio_base_time is None:
+            self._audio_base_time = time.time()
 
         return self
 
@@ -135,7 +142,7 @@ def parse_timestamp_to_secs(timestamp):
     return span
  
 
-def listen_print_loop(responses, caption_file, sound_consumer):
+def listen_print_loop(responses, caption_file, sound_consumer, audio_start_time):
     """Iterates through server responses and prints them.
 
     The responses passed is a generator that will block until a response
@@ -149,7 +156,6 @@ def listen_print_loop(responses, caption_file, sound_consumer):
     with timestamps every minute.
     """
     last_phrase = ''
-    started_at = 0
     last_caption_timestamp = 0
     for response in responses:
         logging.info("response: {}".format(response))
@@ -163,7 +169,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
         if not result.alternatives:
             continue
         logging.info("result: {}".format(result)) 
-        result_end_time = parse_timestamp_to_secs(result.result_end_time)
+        result_end_time = audio_start_time + parse_timestamp_to_secs(result.result_end_time)
 
         # Display the transcription of the top alternative.
         words = result.alternatives[0].words
@@ -180,7 +186,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
             phrase = " ".join([word.word for word in words])
         else:
             phrase = result.alternatives[0].transcript
-            logging.info("word %s at %f", phrase.split(" ")[-1:], result_end_time)
+            logging.info("word %s at %s", phrase.split(" ")[-1:], time.strftime('%T', time.gmtime(result_end_time)))
         if caption_file and result.is_final:
             caption = phrase+'\n'
             if time.time() - last_caption_timestamp > CAPTION_DURATION_SECS:
@@ -237,7 +243,7 @@ def main(argv):
              for seq, chunk_count, start_offset, end_offset, content in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
-            listen_print_loop(responses, caption_file, sound_consumer)
+            listen_print_loop(responses, caption_file, sound_consumer, stream.get_start_time())
           except:
             traceback.print_exc()
           finally:
