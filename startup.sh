@@ -2,6 +2,9 @@
 cmd_dir=`dirname $0`
 PYTHON=$(which python3)
 
+LOGFILE=/var/log/speech.log
+touch $LOGFILE
+sudo chmod a+rxw $LOGFILE
 cd $cmd_dir
 export GOOGLE_APPLICATION_CREDENTIALS=`ls ../cred*json | head -1`
 echo $GOOGLE_APPLICATION_CREDENTIALS
@@ -23,7 +26,7 @@ $PYTHON show_text_fe.py "quit quit quit to exit"
 TIMESTAMP=$(date  +"%m-%d-%H-%M")
 transcript="${HOME}/Desktop/SPEECH-${TIMESTAMP}.txt"
 $PYTHON show_text_fe.py "caption file is: ${transcript}"
-$PYTHON ./streaming_recognizer.py "${transcript}" 2>/tmp/speech.err
+$PYTHON ./streaming_recognizer.py "${transcript}" 2>"${LOGFILE}"
 rc=$?
 if [[ $rc -eq 0 ]]; then
   $PYTHON show_text_fe.py 'shutting down'

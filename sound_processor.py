@@ -66,6 +66,7 @@ class SoundConsumer(Background):
 
     def __init__(self, audio_chunk_pipe, log_queue, log_level, plot_sample_count):
         super(SoundConsumer, self).__init__(audio_chunk_pipe, log_queue, log_level)
+        self.audio_start_secs = None
         self.current_state = STATE_VOLUME_CONSTANT
         self._sound_samples = deque(maxlen=plot_sample_count)
         self._sample_timestamps = deque(maxlen=plot_sample_count)
@@ -117,6 +118,9 @@ class SoundConsumer(Background):
             try:
                 logging.debug("recv")
                 seq, chunk_size, start_at, end_at, sound_bite = self._receive_pipe.recv()
+                if self.audio_start_secs is None:
+                    self.audio_start_secs = start_at
+                    logging.info("audio start: %s", self.audio_start_secs)
                 if sound_bite is None:
                     logging.debug('NULL audio chunk')
                 sample_rms = get_rms(sound_bite)

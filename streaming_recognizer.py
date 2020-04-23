@@ -152,7 +152,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
     started_at = 0
     last_caption_timestamp = 0
     for response in responses:
-        logging.debug("response: {}".format(response))
+        logging.info("response: {}".format(response))
         if not response.results:
             continue
 
@@ -162,7 +162,7 @@ def listen_print_loop(responses, caption_file, sound_consumer):
         result = response.results[0]
         if not result.alternatives:
             continue
-      
+        logging.info("result: {}".format(result)) 
         result_end_time = parse_timestamp_to_secs(result.result_end_time)
 
         # Display the transcription of the top alternative.
