@@ -71,10 +71,12 @@ class MicrophoneStream(object):
         )
 
         self.closed = False
-        if self._audio_base_time is None:
-            self._audio_base_time = time.time()
 
         return self
+
+    def _set_base_time(self):
+        if self._audio_base_time is None:
+            self._audio_base_time = time.time()
 
     def __exit__(self, type, value, traceback):
         self._audio_stream.stop_stream()
@@ -87,6 +89,7 @@ class MicrophoneStream(object):
 
     def _fill_buffer(self, in_data, frame_count, time_info, status_flags):
         """Continuously collect data from the audio stream, into the buffer."""
+        self._set_base_time()
         self._buff.put(in_data)
         return None, pyaudio.paContinue
 
@@ -176,17 +179,18 @@ def listen_print_loop(responses, caption_file, sound_consumer, audio_start_time)
 
         times = []
         for word in words:
-            start = parse_timestamp_to_secs(word.start_time)
-            end = parse_timestamp_to_secs(word.end_time)
-            span = (start, end, (end-start))
-            times.append((word.word, span))
+            start =  audio_start_time + parse_timestamp_to_secs(word.start_time)
+            end =  audio_start_time + parse_timestamp_to_secs(word.end_time)
+            duration = (start, end, (end-start))
+            times.append((word.word, duration))
         # Handle words only being returned for final results.  https://issuetracker.google.com/issues/144757737
         if words:
-            logging.info('word times: %s', str(times))
+            logging.info('word times: %s', [(word[0], time.strftime('%H:%M:%S', time.localtime(word[1][1]))) for word in times])
+            logging.info("word %s at %s", phrase.split(" ")[-1:], time.strftime('%H:%M:%S', time.localtime(result_end_time)))
             phrase = " ".join([word.word for word in words])
         else:
             phrase = result.alternatives[0].transcript
-            logging.info("word %s at %s", phrase.split(" ")[-1:], time.strftime('%T', time.gmtime(result_end_time)))
+            logging.info("word %s at %s", phrase.split(" ")[-1:], time.strftime('%T', time.localtime(result_end_time)))
         if caption_file and result.is_final:
             caption = phrase+'\n'
             if time.time() - last_caption_timestamp > CAPTION_DURATION_SECS:
@@ -237,6 +241,8 @@ def main(argv):
         interim_results=True)
     sound_consumer.start()
     with MicrophoneStream(RATE, CHUNK, sound_send_pipe) as stream:
+        while stream.get_start_time() is None:
+          time.sleep(CHUNK_DURATION_SECS)
         audio_generator = stream.generator()
         while True:
           requests = (types.StreamingRecognizeRequest(audio_content=content)
