@@ -76,7 +76,7 @@ class MicrophoneStream(object):
 
     def _set_base_time(self):
         if self._audio_base_time is None:
-            self._audio_base_time = time.time()
+            self._audio_base_time = time.time() - CHUNK_DURATION_SECS
 
     def __exit__(self, type, value, traceback):
         self._audio_stream.stop_stream()
