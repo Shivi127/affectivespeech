@@ -132,11 +132,7 @@ class MicrophoneStream(object):
             soundbite = (sound_chunk, frame_nbr, chunk_count, start_time, end_time)
             start_time = None
             chunk_count = 0
-            self._pipe_lock.acquire()
-            try:
-                self._sound_chunk_pipe.send(soundbite)
-            finally:
-                self._pipe_lock.release()
+            self._sound_chunk_pipe.send(soundbite)
             logging.debug('sent')
             yield soundbite
 
@@ -201,11 +197,7 @@ def listen_print_loop(responses, caption_file, send_pipe, pipe_lock, sound_consu
             caption_file.write(caption)
 
         timestamped_text = (str(phrase), result_end_time)
-        pipe_lock.acquire()
-        try:
-            send_pipe.send(timestamped_text)
-        finally:
-            pipe_lock.release()
+        send_pipe.send(timestamped_text)
 
         last_phrase = phrase
 
