@@ -112,6 +112,13 @@ class SoundRenderer(Background):
         draw_graph('sound level', (self.all_min, self.all_max), 'RMS', samples_plot, windows_plot, sample_labels)
 
     def consume_audio_and_text(self):
+        """
+        Ingest packets which are tuples containing either a string or an audio
+        chunk at position[0].
+
+        Process either one.
+        """
+  
         logging.info('Waiting to consume')
         while not self._exit.is_set():
             try:
@@ -132,7 +139,7 @@ class SoundRenderer(Background):
         pass
 
     def process_audio(self, packet):
-        seq, chunk_size, start_at, end_at, sound_bite = packet
+        sound_bite, seq, chunk_size, start_at, end_at = packet
         if sound_bite is None:
             logging.debug('NULL audio chunk')
         sample_rms = get_rms(sound_bite)

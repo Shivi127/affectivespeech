@@ -130,7 +130,7 @@ class MicrophoneStream(object):
             frame_nbr += 1
             sound_chunk = b''.join(data)
             end_time = received_at
-            soundbite = (frame_nbr, chunk_count, start_time, end_time, sound_chunk)
+            soundbite = (sound_chunk, frame_nbr, chunk_count, start_time, end_time)
             start_time = None
             chunk_count = 0
             if self._sound_chunk_pipe:
@@ -246,7 +246,7 @@ def main(argv):
         audio_generator = stream.generator()
         while True:
           requests = (types.StreamingRecognizeRequest(audio_content=content)
-             for seq, chunk_count, start_offset, end_offset, content in audio_generator)
+             for content, seq, chunk_count, start_offset, end_offset in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
             listen_print_loop(responses, caption_file, sound_consumer, stream.get_start_time())
