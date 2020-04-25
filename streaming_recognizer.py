@@ -227,9 +227,9 @@ def main(argv):
     logging.getLogger('').addHandler(handler)
     logging.getLogger('').setLevel(_DEBUG)
 
-    ipc_pipe = multiprocessing.Pipe()
-    sound_send_pipe, _ = ipc_pipe
-    sound_consumer = sound_processor.SoundConsumer(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
+    ipc_pipe =  multiprocessing.Pipe()
+    sound_send_pipe, unused_sound_pipe = ipc_pipe
+    sound_consumer = sound_processor.SoundRenderer(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
 
     config = types.RecognitionConfig(
         encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
@@ -256,8 +256,7 @@ def main(argv):
             break
     if caption_file:
       caption_file.close()
-    _, unused_pipe = ipc_pipe
-    unused_pipe.close()
+    unused_sound_pipe.close()
     sound_send_pipe.close()
     logging.info("stopping background process")
     sound_consumer.stop()
