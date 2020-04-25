@@ -23,8 +23,6 @@ from collections import deque
 
 import sound_processor
 
-from show_text_fe import show_text
-from sound_state import *
 
 # Audio recording parameters
 RATE = 16000
@@ -42,10 +40,11 @@ PAUSE_MINIMUM_SPAN_SECS = 2
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
-    def __init__(self, rate, chunk, sound_chunk_pipe=None):
+    def __init__(self, rate, chunk, sound_chunk_pipe, pipe_lock):
         self._rate = rate
         self._chunk = chunk
         self._sound_chunk_pipe = sound_chunk_pipe
+        self._pipe_lock = pipe_lock
 
         # Create a thread-safe buffer of audio data
         self._buff = queue.Queue()
@@ -133,8 +132,11 @@ class MicrophoneStream(object):
             soundbite = (sound_chunk, frame_nbr, chunk_count, start_time, end_time)
             start_time = None
             chunk_count = 0
-            if self._sound_chunk_pipe:
+            self._pipe_lock.acquire()
+            try:
                 self._sound_chunk_pipe.send(soundbite)
+            finally:
+                self._pipe_lock.release()
             logging.debug('sent')
             yield soundbite
 
@@ -145,7 +147,7 @@ def parse_timestamp_to_secs(timestamp):
     return span
  
 
-def listen_print_loop(responses, caption_file, sound_consumer, audio_start_time):
+def listen_print_loop(responses, caption_file, send_pipe, pipe_lock, sound_consumer, audio_start_time):
     """Iterates through server responses and prints them.
 
     The responses passed is a generator that will block until a response
@@ -198,14 +200,18 @@ def listen_print_loop(responses, caption_file, sound_consumer, audio_start_time)
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-        logging.info('state: %s', str(sound_consumer.current_state))
-        show_text(phrase, sound_consumer.current_state)
+        timestamped_text = (str(phrase), result_end_time)
+        pipe_lock.acquire()
+        try:
+            send_pipe.send(timestamped_text)
+        finally:
+            pipe_lock.release()
+
         last_phrase = phrase
 
         # Exit recognition if our exit word is said 3 times
         if result.is_final and len(re.findall(r'quit', phrase, re.I)) == 3:
             print('Exiting..')
-            show_text('Exiting..')
             break
 
 
@@ -227,6 +233,8 @@ def main(argv):
     logging.getLogger('').addHandler(handler)
     logging.getLogger('').setLevel(_DEBUG)
 
+    pipe_lock = threading.Lock()
+    logging.info('lock: {}'.format(pipe_lock.locked()))
     ipc_pipe =  multiprocessing.Pipe()
     sound_send_pipe, unused_sound_pipe = ipc_pipe
     sound_consumer = sound_processor.SoundRenderer(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
@@ -240,7 +248,7 @@ def main(argv):
         config=config,
         interim_results=True)
     sound_consumer.start()
-    with MicrophoneStream(RATE, CHUNK, sound_send_pipe) as stream:
+    with MicrophoneStream(RATE, CHUNK, sound_send_pipe, pipe_lock) as stream:
         while stream.get_start_time() is None:
           time.sleep(CHUNK_DURATION_SECS)
         audio_generator = stream.generator()
@@ -249,15 +257,15 @@ def main(argv):
              for content, seq, chunk_count, start_offset, end_offset in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
-            listen_print_loop(responses, caption_file, sound_consumer, stream.get_start_time())
+            listen_print_loop(responses, caption_file, sound_send_pipe, pipe_lock, sound_consumer, stream.get_start_time())
           except:
             traceback.print_exc()
           finally:
             break
     if caption_file:
       caption_file.close()
-    unused_sound_pipe.close()
     sound_send_pipe.close()
+    unused_sound_pipe.close()
     logging.info("stopping background process")
     sound_consumer.stop()
     sound_consumer.join()

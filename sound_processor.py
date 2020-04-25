@@ -5,6 +5,7 @@ from queue import Queue
 from queue import Empty
 
 from background_process import Background
+from show_text_fe import show_text
 
 import audioop
 import time
@@ -136,7 +137,8 @@ class SoundRenderer(Background):
         logging.info('Done consuming audio')
 
     def process_text(self, packet):
-        pass
+        phrase, timestamp = packet
+        show_text(phrase)
 
     def process_audio(self, packet):
         sound_bite, seq, chunk_size, start_at, end_at = packet
