@@ -5,22 +5,18 @@ from queue import Queue
 from queue import Empty
 
 from background_process import Background
-from show_text_fe import show_text
 
 import audioop
 import time
 from datetime import datetime
 from collections import deque
 
-from show_text_fe import show_text
-from sound_state import *
 from plotutil import *
 
 VOLUME_SILENCE_RANGE = 1.10  # Consider anything within 10% above the minimum sound to be background noise
 VOLUME_RAISED_VARIANCE_THRESHOLD = 0.5
 VOLUME_LOWERED_VARIANCE_THRESHOLD = -1 * VOLUME_RAISED_VARIANCE_THRESHOLD
 
-STATE_SAMPLE_LIFETIME_SECS = 5
 PAUSE_MINIMUM_SPAN_SECS = 2
 
 def get_max(audio_chunk):
@@ -36,7 +32,7 @@ class SoundRenderer(Background):
     def run(self):
         self._initLogging()
         logging.debug('run')
-        self.consume_audio_and_text()
+        self.consume_audio()
 
     def add_to_recent_window_rms(self, window_rms):
         self._sound_windows.append(window_rms)
@@ -67,33 +63,12 @@ class SoundRenderer(Background):
 
     def __init__(self, audio_chunk_pipe, log_queue, log_level, plot_sample_count):
         super(SoundRenderer, self).__init__(audio_chunk_pipe, log_queue, log_level)
-        self.current_state = STATE_VOLUME_CONSTANT
         self._sound_samples = deque(maxlen=plot_sample_count)
         self._sample_timestamps = deque(maxlen=plot_sample_count)
         self._sound_windows = deque(maxlen=plot_sample_count)
-        self._state_changes = deque(maxlen=plot_sample_count)
         self.plot_sample_count = plot_sample_count
         self.all_min = 9999
         self.all_max = -9999
-
-    def maintain_state_change_queue_lifetime(self):
-        """
-        Guarantee that only state changes that occured in the desired lifetime are kept.
-        returns: If any stored entries were old and deleted.
-        """
-        oldest_target_sample_age = time.time() - STATE_SAMPLE_LIFETIME_SECS
-        deleted = False
-        
-        while len(self._state_changes) > 0 and self._state_changes[0][2] < oldest_target_sample_age:
-            self._state_changes.popleft()
-            deleted = True
-        return deleted
-
-    def record_state_change(self, state, change_sample_start_at, change_sample_end_at):
-        self.current_state = state
-        sample = (state, change_sample_start_at, change_sample_end_at)
-        self._state_changes.append(sample)
-        self.maintain_state_change_queue_lifetime()
 
     def plot_recent_samples_rms(self):
         slice_start = -1 * min(self.plot_sample_count, len(self._sound_samples))
@@ -112,33 +87,18 @@ class SoundRenderer(Background):
                 sample_labels.append('')
         draw_graph('sound level', (self.all_min, self.all_max), 'RMS', samples_plot, windows_plot, sample_labels)
 
-    def consume_audio_and_text(self):
-        """
-        Ingest packets which are tuples containing either a string or an audio
-        chunk at position[0].
-
-        Process either one.
-        """
-  
+    def consume_audio(self):
         logging.info('Waiting to consume')
         while not self._exit.is_set():
             try:
-                logging.debug('recv')
                 packet = self._receive_pipe.recv()
-                if isinstance(packet[0], str):
-                    self.process_text(packet)
-                else:
-                    self.process_audio(packet)
+                self.process_audio(packet)
             except EOFError:
                 break
             except Exception:
                 logging.exception('error consuming audio')
                 break
-        logging.info('Done consuming audio')
-
-    def process_text(self, packet):
-        phrase, timestamp = packet
-        show_text(phrase)
+        logging.info('Done consuming')
 
     def process_audio(self, packet):
         sound_bite, seq, chunk_size, start_at, end_at = packet
@@ -161,12 +121,5 @@ class SoundRenderer(Background):
 
         sample_rms_variance = float(sample_rms_delta) / window_rms
 
-        if sample_rms_variance >= VOLUME_RAISED_VARIANCE_THRESHOLD:
-            self.record_state_change(STATE_VOLUME_ELEVATED, start_at, end_at)
-        elif sample_rms_delta <= VOLUME_LOWERED_VARIANCE_THRESHOLD:
-            self.record_state_change(STATE_VOLUME_LOWERED, start_at, end_at)
-        elif self.current_state != STATE_VOLUME_CONSTANT:
-            self.record_state_change(STATE_VOLUME_CONSTANT, start_at, end_at)
-            
         logging.debug('frame {},{},{},{},{},{},{},{},{},{},{},{},{}'.format(seq, chunk_size, round(start_at, 2), round(end_at, 2), round((end_at - start_at), 4), len(sound_bite), get_max(sound_bite), window_rms, sample_rms, len(self._sound_samples), volume_silence_threshold, sample_rms_delta, sample_rms_variance))
         self.plot_recent_samples_rms()

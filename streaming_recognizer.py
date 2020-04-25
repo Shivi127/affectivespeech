@@ -22,6 +22,7 @@ from datetime import datetime
 from collections import deque
 
 import sound_processor
+from show_text_fe import show_text
 
 
 # Audio recording parameters
@@ -40,11 +41,10 @@ PAUSE_MINIMUM_SPAN_SECS = 2
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
-    def __init__(self, rate, chunk, sound_chunk_pipe, pipe_lock):
+    def __init__(self, rate, chunk, sound_chunk_pipe):
         self._rate = rate
         self._chunk = chunk
         self._sound_chunk_pipe = sound_chunk_pipe
-        self._pipe_lock = pipe_lock
 
         # Create a thread-safe buffer of audio data
         self._buff = queue.Queue()
@@ -143,7 +143,7 @@ def parse_timestamp_to_secs(timestamp):
     return span
  
 
-def listen_print_loop(responses, caption_file, send_pipe, pipe_lock, sound_consumer, audio_start_time):
+def listen_print_loop(responses, caption_file, send_pipe, sound_consumer, audio_start_time):
     """Iterates through server responses and prints them.
 
     The responses passed is a generator that will block until a response
@@ -196,8 +196,7 @@ def listen_print_loop(responses, caption_file, send_pipe, pipe_lock, sound_consu
                 last_caption_timestamp = time.time()
             caption_file.write(caption)
 
-        timestamped_text = (str(phrase), result_end_time)
-        send_pipe.send(timestamped_text)
+        show_text(phrase)
 
         last_phrase = phrase
 
@@ -225,8 +224,6 @@ def main(argv):
     logging.getLogger('').addHandler(handler)
     logging.getLogger('').setLevel(_DEBUG)
 
-    pipe_lock = threading.Lock()
-    logging.info('lock: {}'.format(pipe_lock.locked()))
     ipc_pipe =  multiprocessing.Pipe()
     sound_send_pipe, unused_sound_pipe = ipc_pipe
     sound_consumer = sound_processor.SoundRenderer(ipc_pipe, log_queue, logging.getLogger('').getEffectiveLevel(), _PLOT_HISTORY_COUNT)
@@ -240,7 +237,7 @@ def main(argv):
         config=config,
         interim_results=True)
     sound_consumer.start()
-    with MicrophoneStream(RATE, CHUNK, sound_send_pipe, pipe_lock) as stream:
+    with MicrophoneStream(RATE, CHUNK, sound_send_pipe) as stream:
         while stream.get_start_time() is None:
           time.sleep(CHUNK_DURATION_SECS)
         audio_generator = stream.generator()
@@ -249,7 +246,7 @@ def main(argv):
              for content, seq, chunk_count, start_offset, end_offset in audio_generator)
           responses = client.streaming_recognize(streaming_config, requests)
           try:
-            listen_print_loop(responses, caption_file, sound_send_pipe, pipe_lock, sound_consumer, stream.get_start_time())
+            listen_print_loop(responses, caption_file, sound_send_pipe, sound_consumer, stream.get_start_time())
           except:
             traceback.print_exc()
           finally:
